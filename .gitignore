@@ -1,0 +1,13 @@
+# Directorios temporales e imágenes
+imagenes/
+.pio/
+.vscode/
+.idea/
+
+# Credenciales sensibles
+Credentials.h
+**/Credentials.h
+
+# Codigos anteriores (no subir al repositorio)
+codigos-anteiores/
+codigos-anteriores/
