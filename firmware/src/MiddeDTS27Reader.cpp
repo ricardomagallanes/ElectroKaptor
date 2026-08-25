@@ -6,7 +6,7 @@ MiddeDTS27Reader::MiddeDTS27Reader(uint8_t rxPin, uint8_t txPin)
   : _rxPin(rxPin), _txPin(txPin), _irSerial(1) {}
 #elif defined(ARDUINO_ARCH_STM32)
 MiddeDTS27Reader::MiddeDTS27Reader(uint8_t rxPin, uint8_t txPin) 
-  : _rxPin(rxPin), _txPin(txPin), _irSerial(PA10, PA9) {}
+  : _rxPin(rxPin), _txPin(txPin) {}
 #else
 MiddeDTS27Reader::MiddeDTS27Reader(uint8_t rxPin, uint8_t txPin) 
   : _rxPin(rxPin), _txPin(txPin), _irSerial(1) {}

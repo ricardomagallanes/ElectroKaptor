@@ -54,9 +54,9 @@ Este documento contiene la radiografía técnica completa y el relevamiento de h
 1. **Fuente Interna AC/DC:** Módulo **Hi-Link HLK-PM01** (Entrada 100-240V AC -> Salida 5V DC 3W), protegido por fusible de 500mA (`F1`) y varistor de protección frente a sobretensiones (`KV1`).
 2. **LEDs Indicadores de Estado (Lado inferior PCB):**
    - **D6 (Verde superior):** Indicador de Alimentación de Red 220V AC por Hardware (Puenteado en PCB directamente a la salida de la fuente Hi-Link; no depende de control GPIO por firmware).
-   - **D5 (Rojo superior):** Pin `PA4` (Control por Software - Estado / Alerta).
-   - **D3 (Rojo medio):** Pin `PA5` (Control por Software - Actividad Lectura IR / LoRaWAN).
-   - **D4 (Rojo inferior):** Pin `PA6` (Control por Software - Reserva / Estado secundario).
+   - **D5 (Rojo superior):** Pin `PB13` (Control por Software - Falla / Alerta).
+   - **D3 (Rojo medio):** Pin `PB14` (Control por Software - Actividad Lectura IR / LoRaWAN).
+   - **D4 (Rojo inferior):** Pin `PB15` (Control por Software - Estado Auxiliar).
 3. **Conectores Serie y Headers:**
    - **Header SWD:** 4 pads en la parte superior para programación ST-Link V2 (`SWDIO`, `SWCLK`, `3.3V`, `GND`).
    - **Header J12 y Resistencias R20 / R21:** Forman el bus de comunicación serie UART de comandos AT entre el STM32F103 (Host) y los pines `UART2_TX` / `UART2_RX` del módulo RAK3172. `R20` y `R21` son resistencias en serie de protección en las líneas TX/RX.

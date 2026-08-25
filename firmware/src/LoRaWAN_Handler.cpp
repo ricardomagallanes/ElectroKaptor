@@ -149,15 +149,15 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
 #elif SELECTED_BOARD_MODEL == BOARD_STM32F103C8T6
 
 #if defined(ARDUINO_ARCH_STM32)
-HardwareSerial rakSerial(PA3, PA2);
-#else
-HardwareSerial rakSerial(2);
+// En STM32F103C8T6, USART2 (PA3 RX / PA2 TX) está mapeado a Serial2 por el core ststm32
+#define rakSerial Serial2
 #endif
 
 LoRaWANHandler::LoRaWANHandler() : _joined(false) {}
 
 bool LoRaWANHandler::begin() {
-  Serial.println("[LoRaWAN] Inicializando módem RAK3172 sobre USART2...");
+  Serial.println("[LoRaWAN] Inicializando módem RAK3172 sobre USART2 (Serial2)...");
+#if defined(ARDUINO_ARCH_STM32)
   rakSerial.begin(9600);
   delay(300);
   while (rakSerial.available()) rakSerial.read();
@@ -177,6 +177,7 @@ bool LoRaWANHandler::begin() {
     Serial.println("[LoRaWAN] Módem RAK3172 responde AT OK.");
     return true;
   }
+#endif
   Serial.println("[LoRaWAN] RAK3172 inicializado (esperando transmisión).");
   return true;
 }
@@ -184,9 +185,11 @@ bool LoRaWANHandler::begin() {
 void LoRaWANHandler::process(uint32_t ms) {
   uint32_t start = millis();
   while (millis() - start < ms) {
+#if defined(ARDUINO_ARCH_STM32)
     while (rakSerial.available()) {
       Serial.write(rakSerial.read());
     }
+#endif
     delay(10);
   }
 }
@@ -197,11 +200,13 @@ bool LoRaWANHandler::isJoined() {
 
 bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
   Serial.println("[LoRaWAN] Enviando comando Join OTAA a RAK3172...");
+#if defined(ARDUINO_ARCH_STM32)
   rakSerial.print("AT+NWM=1\r\n");
   process(200);
   rakSerial.print("AT+BAND=6\r\n");
   process(200);
   rakSerial.print("AT+JOIN=1:0:10:8\r\n");
+#endif
 
   uint32_t start = millis();
   while (millis() - start < timeoutMs) {
@@ -222,7 +227,9 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
   }
 
   Serial.printf("[LoRaWAN] RAK3172 AT+SEND=%d:%s\n", port, hexBuf);
+#if defined(ARDUINO_ARCH_STM32)
   rakSerial.printf("AT+SEND=%d:%s\r\n", port, hexBuf);
+#endif
   process(3000);
   return true;
 }

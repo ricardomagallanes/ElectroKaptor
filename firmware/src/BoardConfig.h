@@ -66,9 +66,9 @@
 
   // Pines de LEDs de Estado de la Placa Original (ME_LoRa_v3.6)
   // D6 (Verde superior): Indicador 220V AC directo por hardware
-  #define LED_FAIL_PIN    PA4  // D5 Rojo superior: Fail / Alerta
-  #define LED_TX_LORA_PIN PA5  // D3 Rojo medio: Actividad IR / LoRaWAN
-  #define LED_UNUSED_PIN  PA6  // D4 Rojo inferior: Estado auxiliar
+  #define LED_FAIL_PIN    PB13  // D5 Rojo superior: Fail / Alerta
+  #define LED_TX_LORA_PIN PB14  // D3 Rojo medio: Actividad IR / LoRaWAN
+  #define LED_UNUSED_PIN  PB15  // D4 Rojo inferior: Estado auxiliar
 
   // Pin de detección de alimentación externa 220V (Fuente Hi-Link)
   #define POWER_SENSE_PIN PA1   // Sensa presencia de energía de red externa

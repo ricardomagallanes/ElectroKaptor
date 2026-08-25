@@ -16,7 +16,11 @@ public:
 private:
   uint8_t _rxPin;
   uint8_t _txPin;
+#if defined(ARDUINO_ARCH_STM32)
+  #define _irSerial Serial1
+#else
   HardwareSerial _irSerial;
+#endif
 
   bool detectSyncSequence(unsigned long timeoutMs);
   uint8_t mapByteToNibble(uint8_t val);

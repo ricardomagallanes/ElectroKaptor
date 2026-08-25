@@ -121,14 +121,14 @@ void initLeds() {
   digitalWrite(LED_UNUSED_PIN, LOW);
 #endif
 
-  // SECUENCIA DE BARRIDO DE ARRANQUE (3 LEDs Rojos: D5 -> D3 -> D4)
+  // SECUENCIA DE BARRIDO DE ARRANQUE (3 LEDs Rojos: D5 (PB13) -> D3 (PB14) -> D4 (PB15))
 #if defined(LED_FAIL_PIN) && defined(LED_TX_LORA_PIN) && defined(LED_UNUSED_PIN)
   for (int cycle = 0; cycle < 3; cycle++) {
-    // 1. D5 (Rojo superior - PA4)
+    // 1. D5 (Rojo superior - PB13)
     digitalWrite(LED_FAIL_PIN, HIGH);    delay(300); digitalWrite(LED_FAIL_PIN, LOW);    delay(100);
-    // 2. D3 (Rojo medio - PA5)
+    // 2. D3 (Rojo medio - PB14)
     digitalWrite(LED_TX_LORA_PIN, HIGH); delay(300); digitalWrite(LED_TX_LORA_PIN, LOW);  delay(100);
-    // 3. D4 (Rojo inferior - PA6)
+    // 3. D4 (Rojo inferior - PB15)
     digitalWrite(LED_UNUSED_PIN, HIGH);  delay(300); digitalWrite(LED_UNUSED_PIN, LOW);  delay(100);
   }
 
