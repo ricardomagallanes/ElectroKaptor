@@ -58,10 +58,17 @@ Este documento contiene la radiografía técnica completa y el relevamiento de h
    - **D3 (Rojo):** Resistencia limitadora `R16` (Lectura Infrarroja IR).
    - **D4 (Rojo inferior):** Resistencia limitadora `R17` (Error / Alerta).
 3. **Conectores Serie y Headers:**
-   - **Header SWD:** 4 pads en la parte superior para programación ST-Link V2.
-   - **Header J12 / Resistencias R20, R21:** Bus UART de comunicación entre el STM32F103 y el RAK3172.
-   - **Header J13:** Puerto de expansión / interfaz auxiliar.
-   - **Pulsadores:** `SW2` y `SW3` (Reset / Configuración).
+   - **Header SWD:** 4 pads en la parte superior para programación ST-Link V2 (`SWDIO`, `SWCLK`, `3.3V`, `GND`).
+   - **Header J12 y Resistencias R20 / R21:** Forman el bus de comunicación serie UART de comandos AT entre el STM32F103 (Host) y los pines `UART2_TX` / `UART2_RX` del módulo RAK3172. `R20` y `R21` son resistencias en serie de protección en las líneas TX/RX.
+   - **Header J13 (4 pines a la izquierda del RAK3172):** Conector directo a la interfaz de depuración/programación SWD propia del chip STM32WLE5CC interno del RAK3172.
+   - **Pulsadores:** `SW3` (conectado a la línea de Reset `NRST` del RAK3172) y `SW2` (Reset/Configuración general).
+
+### 🔍 Detalle del Conexionado del RAK3172 con el STM32F103:
+- **Comunicación:** El RAK3172 opera como un módem esclavo mediante comandos AT a 9600 u 115200 baudios.
+- **Pines del RAK3172 involucrados:**
+  - Pin 5 (`UART2_TX` de RAK3172) ---> pasa por resistencia `R20` ---> conecta al pin `RX` de la UART del STM32F103 (`PA10` en USART1 o `PA3` en USART2).
+  - Pin 6 (`UART2_RX` de RAK3172) ---> pasa por resistencia `R21` ---> conecta al pin `TX` de la UART del STM32F103 (`PA9` en USART1 o `PA2` en USART2).
+  - Pin 7 (`NRST` del RAK3172) ---> conectado al pulsador `SW3` y a un GPIO de control del STM32F103 para reinicio por software.
 
 ---
 
