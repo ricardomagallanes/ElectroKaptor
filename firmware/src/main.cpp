@@ -52,24 +52,44 @@ void initOLED() {
 void initLeds() {
 #ifdef LED_FAIL_PIN
   pinMode(LED_FAIL_PIN, OUTPUT);
-  digitalWrite(LED_FAIL_PIN, LOW);
+  digitalWrite(LED_FAIL_PIN, HIGH); // HIGH = Apagado (Active-LOW)
 #endif
 #ifdef LED_TX_LORA_PIN
   pinMode(LED_TX_LORA_PIN, OUTPUT);
-  digitalWrite(LED_TX_LORA_PIN, LOW);
+  digitalWrite(LED_TX_LORA_PIN, HIGH); // HIGH = Apagado (Active-LOW)
 #endif
 #ifdef LED_UNUSED_PIN
   pinMode(LED_UNUSED_PIN, OUTPUT);
+  digitalWrite(LED_UNUSED_PIN, HIGH); // HIGH = Apagado (Active-LOW)
+#endif
+
+  // SECUENCIA DE ARRANQUE VISUAL DE COMPROBACIÓN (LÓGICA ACTIVE-LOW)
+#if defined(LED_FAIL_PIN) && defined(LED_TX_LORA_PIN) && defined(LED_UNUSED_PIN)
+  // 1. LED 2 (PB1 - Rojo Superior Fail)
+  digitalWrite(LED_FAIL_PIN, LOW);    delay(300); digitalWrite(LED_FAIL_PIN, HIGH);   delay(100);
+  // 2. LED 3 (PB0 - Rojo Medio LoRa)
+  digitalWrite(LED_TX_LORA_PIN, LOW); delay(300); digitalWrite(LED_TX_LORA_PIN, HIGH); delay(100);
+  // 3. LED 4 (PB2 - Rojo Inferior Reserva)
+  digitalWrite(LED_UNUSED_PIN, LOW);  delay(300); digitalWrite(LED_UNUSED_PIN, HIGH); delay(100);
+
+  // Destello conjunto final (300 ms) y luego TODOS APAGADOS (HIGH)
+  digitalWrite(LED_FAIL_PIN, LOW);
+  digitalWrite(LED_TX_LORA_PIN, LOW);
   digitalWrite(LED_UNUSED_PIN, LOW);
+  delay(300);
+  digitalWrite(LED_FAIL_PIN, HIGH);
+  digitalWrite(LED_TX_LORA_PIN, HIGH);
+  digitalWrite(LED_UNUSED_PIN, HIGH);
+  delay(400);
 #endif
 }
 
 void blinkFailLed(uint8_t count = 5, uint16_t speedMs = 150) {
 #ifdef LED_FAIL_PIN
   for (uint8_t i = 0; i < count; i++) {
-    digitalWrite(LED_FAIL_PIN, HIGH);
+    digitalWrite(LED_FAIL_PIN, LOW);  // Encender (Active-LOW)
     delay(speedMs);
-    digitalWrite(LED_FAIL_PIN, LOW);
+    digitalWrite(LED_FAIL_PIN, HIGH); // Apagar (Active-LOW)
     delay(speedMs);
   }
 #endif
@@ -78,9 +98,9 @@ void blinkFailLed(uint8_t count = 5, uint16_t speedMs = 150) {
 void blinkTxLed(uint8_t count = 3, uint16_t speedMs = 200) {
 #ifdef LED_TX_LORA_PIN
   for (uint8_t i = 0; i < count; i++) {
-    digitalWrite(LED_TX_LORA_PIN, HIGH);
+    digitalWrite(LED_TX_LORA_PIN, LOW);  // Encender (Active-LOW)
     delay(speedMs);
-    digitalWrite(LED_TX_LORA_PIN, LOW);
+    digitalWrite(LED_TX_LORA_PIN, HIGH); // Apagar (Active-LOW)
     delay(speedMs);
   }
 #endif
@@ -107,7 +127,7 @@ void setup() {
   // Inicializar lector infrarrojo
   meterReader->begin(IR_DEFAULT_BAUD_RATE);
 
-  // Parpadear LED 3 (LoRa) durante inicio / handshake OTAA
+  // Parpadear LED 3 (PB0 - LoRa) durante inicio / handshake OTAA
   blinkTxLed(4, 250);
 
   // Inicializar stack LoRaWAN
@@ -169,7 +189,7 @@ void loop() {
     currentData.estado = 2; // Sin Lectura / Error IR
     currentData.tipoMedidor = 2; // Trifásico DTS27
     
-    // LED 2 (Fail - PB13): Parpadea ante cualquier fallo y luego se apaga
+    // LED 2 (PB1 - Fail): Parpadea en caso de fallo de comunicación y luego se apaga
     blinkFailLed(3, 200);
     oledShowStatus(" ALERTA IR ", "Sin Sincronismo", "Verifique sonda IR", "DTS27 DESCONECTADO");
   }
@@ -201,9 +221,9 @@ void loop() {
   txLen = len;
 #endif
 
-  // Encender LED 3 (LoRa - PB14) fijo durante la transmisión del dato por LoRaWAN
+  // Encender LED 3 (PB0 - LoRa) fijo durante la transmisión del dato por LoRaWAN
 #ifdef LED_TX_LORA_PIN
-  digitalWrite(LED_TX_LORA_PIN, HIGH);
+  digitalWrite(LED_TX_LORA_PIN, LOW); // LOW = Encendido (Active-LOW)
 #endif
 
   // Intentar envío de paquete por LoRaWAN
@@ -216,7 +236,7 @@ void loop() {
   }
 
 #ifdef LED_TX_LORA_PIN
-  digitalWrite(LED_TX_LORA_PIN, LOW); // Apagar LED 3 (LoRa) al finalizar envío
+  digitalWrite(LED_TX_LORA_PIN, HIGH); // HIGH = Apagado (Active-LOW) al finalizar envío
 #endif
 
   if (sentOk) {
@@ -225,7 +245,7 @@ void loop() {
     lora.process(2000);
   } else {
     Serial.println("[LoRaWAN] ALERTA CRITICA: Falló el envío de datos por LoRaWAN.");
-    // LED 2 (Fail - PB13): Parpadea en fallo de envío y luego se apaga
+    // LED 2 (PB1 - Fail): Parpadea en fallo de envío y luego se apaga
     blinkFailLed(4, 150);
     oledShowStatus(" ERROR LORAWAN ", "Fallo Envio Paquete", "Revisar Gateway AU915", "REINTENTANDO...");
     lora.process(3000);
