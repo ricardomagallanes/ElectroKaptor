@@ -1,6 +1,6 @@
 # 🔍 Diagnóstico y Especificaciones Técnicas - Placa Original (ME_LoRa_v3.6)
 
-Este documento contiene la radiografía técnica completa y el relevamiento de hardware de la placa de telemetría original **ME_LoRa_v3.6** (Electroductos de Argentina S.A.).
+Este documento contiene la radiografía técnica completa y el relevamiento de hardware de la placa de telemetría original **ME_LoRa_v3.6**.
 
 ---
 
@@ -37,7 +37,7 @@ Este documento contiene la radiografía técnica completa y el relevamiento de h
 
 ```
   +-------------------------------------------------------------------+
-  |               Placa ME_LoRa_v3.6 (Electroductos S.A.)             |
+  |               Placa ME_LoRa_v3.6 (Placa Original)                 |
   |                                                                   |
   |  [Hi-Link HLK-PM01]        [Pines SWD Header]                     |
   |  (Fuente 220V->5V)         (VCC / SWDIO / SWCLK / GND)            |
