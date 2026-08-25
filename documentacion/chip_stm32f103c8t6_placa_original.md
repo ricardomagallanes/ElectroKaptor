@@ -26,7 +26,7 @@ Este documento contiene la radiografía técnica completa y el relevamiento de h
 | :--- | :--- |
 | **Módulo Radio (U8)** | **RAK3172 (I)** (RAKwireless) |
 | **Chip Base del Módem** | STM32WLE5CC (Semtech SX1262 LoRa Core) |
-| **DevEUI de Fábrica** | `AC1F09FFFE24F68B` *(coincide con la trama de prueba `test-dts27-tri-036-6`)* |
+| **DevEUI de Fábrica** | `<DEVEUI_PLACA_ORIGINAL>` |
 | **ID Homologaciones** | FCC ID: `2AF6B-RAK3172` | IC: `25908-RAK3172` |
 | **Conector de Antena** | U.FL / IPEX |
 | **Protocolo de Control** | Comandos AT por UART serie (por defecto `9600` u `115200` baudios 8N1) |
@@ -46,7 +46,7 @@ Este documento contiene la radiografía técnica completa y el relevamiento de h
   |  (Entrada AC / Optica)       | (ARM Cortex-M3)    D6 (Verde - R19)  |
   |                              |                    D5 (Rojo - R18)   |
   |  [Módem RAK3172] <------- (USART)                 D3 (Rojo - R16)   |
-  |  (DevEUI: AC1F09FFFE24F68B)                         D4 (Rojo - R17)   |
+  |  (RAK3172 LoRaWAN)                                  D4 (Rojo - R17)   |
   +-------------------------------------------------------------------+
 ```
 
