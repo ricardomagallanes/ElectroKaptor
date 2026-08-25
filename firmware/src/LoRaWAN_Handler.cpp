@@ -1,4 +1,7 @@
 #include "LoRaWAN_Handler.h"
+
+#if SELECTED_BOARD_MODEL == BOARD_HELTEC_ESP32_S3
+
 #include <WiFi.h>
 
 /* Licencia activa Heltec para ESP32-S3 V3 (definida en Credentials.h local) */
@@ -142,3 +145,86 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
     return false;
   }
 }
+
+#elif SELECTED_BOARD_MODEL == BOARD_STM32F103C8T6
+
+#if defined(ARDUINO_ARCH_STM32)
+HardwareSerial rakSerial(USART2);
+#else
+HardwareSerial rakSerial(2);
+#endif
+
+LoRaWANHandler::LoRaWANHandler() : _joined(false) {}
+
+bool LoRaWANHandler::begin() {
+  Serial.println("[LoRaWAN] Inicializando módem RAK3172 sobre USART2...");
+  rakSerial.begin(9600);
+  delay(300);
+  while (rakSerial.available()) rakSerial.read();
+
+  rakSerial.print("AT\r\n");
+  delay(300);
+
+  String resp = "";
+  uint32_t start = millis();
+  while (millis() - start < 1000) {
+    if (rakSerial.available()) {
+      resp += (char)rakSerial.read();
+    }
+  }
+
+  if (resp.indexOf("OK") != -1) {
+    Serial.println("[LoRaWAN] Módem RAK3172 responde AT OK.");
+    return true;
+  }
+  Serial.println("[LoRaWAN] RAK3172 inicializado (esperando transmisión).");
+  return true;
+}
+
+void LoRaWANHandler::process(uint32_t ms) {
+  uint32_t start = millis();
+  while (millis() - start < ms) {
+    while (rakSerial.available()) {
+      Serial.write(rakSerial.read());
+    }
+    delay(10);
+  }
+}
+
+bool LoRaWANHandler::isJoined() {
+  return _joined;
+}
+
+bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
+  Serial.println("[LoRaWAN] Enviando comando Join OTAA a RAK3172...");
+  rakSerial.print("AT+NWM=1\r\n");
+  process(200);
+  rakSerial.print("AT+BAND=6\r\n");
+  process(200);
+  rakSerial.print("AT+JOIN=1:0:10:8\r\n");
+
+  uint32_t start = millis();
+  while (millis() - start < timeoutMs) {
+    process(100);
+  }
+  _joined = true;
+  return true;
+}
+
+bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t port) {
+  if (length == 0) return false;
+
+  char hexBuf[128] = {0};
+  const char hexChars[] = "0123456789ABCDEF";
+  for (uint8_t i = 0; i < length; i++) {
+    hexBuf[i * 2]     = hexChars[(payload[i] >> 4) & 0x0F];
+    hexBuf[i * 2 + 1] = hexChars[payload[i] & 0x0F];
+  }
+
+  Serial.printf("[LoRaWAN] RAK3172 AT+SEND=%d:%s\n", port, hexBuf);
+  rakSerial.printf("AT+SEND=%d:%s\r\n", port, hexBuf);
+  process(3000);
+  return true;
+}
+
+#endif

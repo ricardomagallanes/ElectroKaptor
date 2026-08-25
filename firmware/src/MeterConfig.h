@@ -14,10 +14,6 @@
 // =========================================================================
 // SELECCIÓN DEL MEDIDOR ACTIVO Y FORMATO DE TRANSMISIÓN
 // =========================================================================
-// PLACA ACTIVA: Heltec WiFi LoRa 32 V3 (ESP32-S3 con Pantalla OLED)
-#undef SELECTED_BOARD_MODEL
-#define SELECTED_BOARD_MODEL    BOARD_HELTEC_ESP32_S3
-
 #define SELECTED_METER_MODEL    METER_MODEL_MIDDE_DTS27
 #define SELECTED_PAYLOAD_FORMAT PAYLOAD_FORMAT_ASCII_HEX
 

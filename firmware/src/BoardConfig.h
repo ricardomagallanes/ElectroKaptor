@@ -8,11 +8,13 @@
 #define BOARD_STM32F103C8T6    2
 
 // =========================================================================
-// SELECCIÓN DE LA PLACA DE DESARROLLO ACTIVA
-// Descomente / Seleccione la línea correspondiente a la placa utilizada:
+// SELECCIÓN DE LA PLACA DE DESARROLLO ACTIVA (Auto-detectada o Manual)
 // =========================================================================
-#define SELECTED_BOARD_MODEL BOARD_HELTEC_ESP32_S3
-// #define SELECTED_BOARD_MODEL BOARD_STM32F103C8T6
+#if defined(STM32F103xB) || defined(ARDUINO_ARCH_STM32)
+  #define SELECTED_BOARD_MODEL BOARD_STM32F103C8T6
+#else
+  #define SELECTED_BOARD_MODEL BOARD_HELTEC_ESP32_S3
+#endif
 
 // =========================================================================
 // CONFIGURACIÓN DE PINES Y PERIFÉRICOS SEGÚN LA PLACA SELECCIONADA

@@ -1,10 +1,22 @@
 #include "ElsterA150Reader.h"
 
+#if defined(ESP32)
 ElsterA150Reader::ElsterA150Reader(uint8_t rxPin, uint8_t txPin) 
   : _rxPin(rxPin), _txPin(txPin), _irSerial(1) {}
+#elif defined(ARDUINO_ARCH_STM32)
+ElsterA150Reader::ElsterA150Reader(uint8_t rxPin, uint8_t txPin) 
+  : _rxPin(rxPin), _txPin(txPin), _irSerial(USART1) {}
+#else
+ElsterA150Reader::ElsterA150Reader(uint8_t rxPin, uint8_t txPin) 
+  : _rxPin(rxPin), _txPin(txPin), _irSerial(1) {}
+#endif
 
 void ElsterA150Reader::begin(unsigned long baudRate) {
+#if defined(ESP32)
   _irSerial.begin(baudRate, SERIAL_8N1, _rxPin, _txPin);
+#else
+  _irSerial.begin(baudRate, SERIAL_8N1);
+#endif
 }
 
 uint8_t ElsterA150Reader::mapByteToNibble(uint8_t val) {

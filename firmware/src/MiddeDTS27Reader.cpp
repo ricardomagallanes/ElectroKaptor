@@ -1,12 +1,24 @@
 #include "MiddeDTS27Reader.h"
 #include "MeterConfig.h"
 
+#if defined(ESP32)
 MiddeDTS27Reader::MiddeDTS27Reader(uint8_t rxPin, uint8_t txPin) 
   : _rxPin(rxPin), _txPin(txPin), _irSerial(1) {}
+#elif defined(ARDUINO_ARCH_STM32)
+MiddeDTS27Reader::MiddeDTS27Reader(uint8_t rxPin, uint8_t txPin) 
+  : _rxPin(rxPin), _txPin(txPin), _irSerial(USART1) {}
+#else
+MiddeDTS27Reader::MiddeDTS27Reader(uint8_t rxPin, uint8_t txPin) 
+  : _rxPin(rxPin), _txPin(txPin), _irSerial(1) {}
+#endif
 
 void MiddeDTS27Reader::begin(unsigned long baudRate) {
   pinMode(_rxPin, INPUT_PULLUP);
+#if defined(ESP32)
   _irSerial.begin(300, SERIAL_7E1, _rxPin, _txPin, false);
+#else
+  _irSerial.begin(300, SERIAL_7E1);
+#endif
 }
 
 uint8_t MiddeDTS27Reader::mapByteToNibble(uint8_t val) {
@@ -27,7 +39,11 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
   Serial.printf("[IR-IEC] Pines: RX=%d, TX=%d | Velocidad: 300 baudios 7E1...\n", _rxPin, _txPin);
 
   pinMode(_rxPin, INPUT_PULLUP);
+#if defined(ESP32)
   _irSerial.begin(300, SERIAL_7E1, _rxPin, _txPin, false);
+#else
+  _irSerial.begin(300, SERIAL_7E1);
+#endif
   delay(100);
 
   // Limpiar buffer serie de entradas previas

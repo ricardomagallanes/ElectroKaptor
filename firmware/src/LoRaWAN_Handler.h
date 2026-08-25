@@ -2,10 +2,13 @@
 #define LORAWAN_HANDLER_H
 
 #include <Arduino.h>
-#include "LoRaWan_APP.h"
 #include "MeterConfig.h"
 #include "BoardConfig.h"
 #include "Credentials.h"
+
+#if SELECTED_BOARD_MODEL == BOARD_HELTEC_ESP32_S3
+#include "LoRaWan_APP.h"
+#endif
 
 class LoRaWANHandler {
 public:
