@@ -163,7 +163,7 @@ void loop() {
     snprintf(l3, sizeof(l3), "FP:%.2f  Freq:%.2fHz", currentData.cosphi / 100.0, currentData.frecuenciaMin / 100.0);
     snprintf(l4, sizeof(l4), "ESTADO: DTS27 OK [1/3]");
     oledShowStatus(" MIDDE DTS27 TRIF ", l1, l2, l3, l4);
-    delay(4000);
+    lora.process(4000);
 
     // Pantalla 2 (4 seg): Frecuencia de Red, Corriente C y Factor de Potencia
     snprintf(l1, sizeof(l1), "Ic:%.2fA  FP:%.2f", currentData.corrienteC / 100.0, currentData.cosphi / 100.0);
@@ -171,7 +171,7 @@ void loop() {
     snprintf(l3, sizeof(l3), "E.ActImp: %.2fkWh", currentData.energiaActivaImp / 100.0);
     snprintf(l4, sizeof(l4), "ESTADO: DTS27 OK [2/3]");
     oledShowStatus(" MIDDE DTS27 TRIF ", l1, l2, l3, l4);
-    delay(4000);
+    lora.process(4000);
 
     // Pantalla 3 (4 seg): Energías Importada, Exportada y Potencias
     snprintf(l1, sizeof(l1), "E.Imp: %.2f kWh", currentData.energiaActivaImp / 100.0);
@@ -179,14 +179,23 @@ void loop() {
     snprintf(l3, sizeof(l3), "Frec: %.2f Hz", currentData.frecuenciaMin / 100.0);
     snprintf(l4, sizeof(l4), "ESTADO: DTS27 OK [3/3]");
     oledShowStatus(" MIDDE DTS27 TRIF ", l1, l2, l3, l4);
-    delay(4000);
+    lora.process(4000);
   } else {
     Serial.println("[IR] Alerta: No se pudo establecer sincronización con el medidor. Enviando mensaje de estado.");
+    currentData.estado = 2; // Sin Lectura / Error IR
+    currentData.tipoMedidor = 2; // Trifásico DTS27
     blinkFailLed(3, 200);
     oledShowStatus(" ALERTA IR ", "Sin Sincronismo", "Verifique sonda IR", "DTS27 DESCONECTADO");
   }
 
-  // Rotar secuencialmente el envío de Mensajes 0, 1, 2 y 3 por LoRaWAN
+  // Determinar número de mensajes soportados según el tipo de medidor:
+  // Monofásico o Trifásico (DTS27) -> Mensajes 0 y 1
+  // Grandes Clientes -> Mensajes 0, 1, 2 y 3
+  uint8_t maxMsgs = (currentData.tipoMedidor == 3) ? 4 : 2;
+  if (msgCounter >= maxMsgs) {
+    msgCounter = 0;
+  }
+
   uint8_t len = 0;
   if (msgCounter == 0) {
     len = BitPacker::packMessage0(currentData, payloadBuffer);
@@ -209,11 +218,11 @@ void loop() {
 #endif
 
   // Intentar envío de paquete por LoRaWAN (y reintentar Join OTAA si aún no está unido)
-  bool sentOk = lora.sendPayload(txBuffer, txLen, 1);
+  bool sentOk = lora.sendPayload(txBuffer, txLen, 10);
   if (!sentOk) {
     Serial.println("[LoRaWAN] Reintentando Join OTAA en este ciclo...");
     if (lora.joinOTAA()) {
-      sentOk = lora.sendPayload(txBuffer, txLen, 1);
+      sentOk = lora.sendPayload(txBuffer, txLen, 10);
     }
   }
 
@@ -225,24 +234,24 @@ void loop() {
     Serial.println("[LoRaWAN] Telemetria enviada con éxito.");
     blinkTxLed(3, 100);
     oledShowStatus(" TELEMETRIA LORA ", "DATOS ENVIADOS", "Enviado a TTN OK", "DTS27 CONECTADO");
-    delay(2000);
+    lora.process(2000);
   } else {
     Serial.println("[LoRaWAN] ALERTA CRITICA: Falló el envío de datos por LoRaWAN.");
     blinkFailLed(4, 150);
     oledShowStatus(" ERROR LORAWAN ", "Fallo Envio Paquete", "Revisar Gateway AU915", "REINTENTANDO...");
-    delay(3000);
+    lora.process(3000);
   }
 
   if (!sentOk) {
     blinkFailLed(5, 150);
   }
 
-  // Incrementar contador de tipo de mensaje (0->1->2->3->0)
-  msgCounter = (msgCounter + 1) % 4;
+  // Incrementar contador respetando el máximo de mensajes del medidor actual
+  msgCounter = (msgCounter + 1) % maxMsgs;
 
   // Esperar el intervalo configurado antes del siguiente ciclo de telemetría
   Serial.print("[LOOP] Entrando en reposo hasta el siguiente ciclo de telemetria (");
   Serial.print(TELEMETRY_INTERVAL_MS / 1000);
   Serial.println(" seg)...");
-  delay(TELEMETRY_INTERVAL_MS);
+  lora.process(TELEMETRY_INTERVAL_MS);
 }

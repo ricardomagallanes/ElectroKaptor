@@ -77,49 +77,55 @@ uint8_t BitPacker::packMessage1(const MeterData &data, uint8_t *outBuffer) {
 }
 
 uint8_t BitPacker::packMessage2(const MeterData &data, uint8_t *outBuffer) {
+  if (data.tipoMedidor != 3) {
+    // Mensaje 2 solo existe para Grandes Clientes. Si se invoca para Pequeños Clientes / Trifásico, empaquetar Mensaje 0
+    return packMessage0(data, outBuffer);
+  }
+
   memset(outBuffer, 0, 24);
   uint16_t offset = 0;
 
   writeBits(outBuffer, offset, 2, 2); // Mensaje: 2 (bits 0..2)
 
-  if (data.tipoMedidor == 3) { // Grandes Clientes
-    writeBits(outBuffer, offset, data.acumuladaActivaImpT1, 27);   // bits 2..29
-    writeBits(outBuffer, offset, data.acumuladaActivaImpT2, 27);   // bits 29..56
-    writeBits(outBuffer, offset, data.acumuladaActivaImpT3, 27);   // bits 56..83
-    writeBits(outBuffer, offset, data.acumuladaReactivaImpT1, 27); // bits 83..110
-    writeBits(outBuffer, offset, data.activaImpFase1, 27);         // bits 110..137
-    writeBits(outBuffer, offset, data.activaImpFase2, 27);         // bits 137..164
-    writeBits(outBuffer, offset, data.activaImpFase3, 27);         // bits 164..191
+  writeBits(outBuffer, offset, data.acumuladaActivaImpT1, 27);   // bits 2..29
+  writeBits(outBuffer, offset, data.acumuladaActivaImpT2, 27);   // bits 29..56
+  writeBits(outBuffer, offset, data.acumuladaActivaImpT3, 27);   // bits 56..83
+  writeBits(outBuffer, offset, data.acumuladaReactivaImpT1, 27); // bits 83..110
+  writeBits(outBuffer, offset, data.activaImpFase1, 27);         // bits 110..137
+  writeBits(outBuffer, offset, data.activaImpFase2, 27);         // bits 137..164
+  writeBits(outBuffer, offset, data.activaImpFase3, 27);         // bits 164..191
 
-    // bit 191 = 1 (Grandes clientes)
-    uint16_t bit191Offset = 191;
-    writeBits(outBuffer, bit191Offset, 1, 1);
-    offset = 192;
-  }
+  // bit 191 = 1 (Grandes clientes)
+  uint16_t bit191Offset = 191;
+  writeBits(outBuffer, bit191Offset, 1, 1);
+  offset = 192;
 
   return (offset + 7) / 8;
 }
 
 uint8_t BitPacker::packMessage3(const MeterData &data, uint8_t *outBuffer) {
+  if (data.tipoMedidor != 3) {
+    // Mensaje 3 solo existe para Grandes Clientes. Si se invoca para Pequeños Clientes / Trifásico, empaquetar Mensaje 0
+    return packMessage0(data, outBuffer);
+  }
+
   memset(outBuffer, 0, 16);
   uint16_t offset = 0;
 
   writeBits(outBuffer, offset, 3, 2); // Mensaje: 3 (bits 0..2)
 
-  if (data.tipoMedidor == 3) { // Grandes Clientes
-    writeBits(outBuffer, offset, data.activaExpFase1, 27);   // bits 2..29
-    writeBits(outBuffer, offset, data.activaExpFase2, 27);   // bits 29..56
-    writeBits(outBuffer, offset, data.activaExpFase3, 27);   // bits 56..83
-    writeBits(outBuffer, offset, data.cosphiMinimo, 7);     // bits 83..90
-    writeBits(outBuffer, offset, data.cosphiPromedio, 7);   // bits 90..97
-    writeBits(outBuffer, offset, data.frecuenciaMin, 13);    // bits 97..110
-    writeBits(outBuffer, offset, data.frecuenciaMax, 13);    // bits 110..123
+  writeBits(outBuffer, offset, data.activaExpFase1, 27);   // bits 2..29
+  writeBits(outBuffer, offset, data.activaExpFase2, 27);   // bits 29..56
+  writeBits(outBuffer, offset, data.activaExpFase3, 27);   // bits 56..83
+  writeBits(outBuffer, offset, data.cosphiMinimo, 7);     // bits 83..90
+  writeBits(outBuffer, offset, data.cosphiPromedio, 7);   // bits 90..97
+  writeBits(outBuffer, offset, data.frecuenciaMin, 13);    // bits 97..110
+  writeBits(outBuffer, offset, data.frecuenciaMax, 13);    // bits 110..123
 
-    while (offset < 127) {
-      writeBits(outBuffer, offset, 0, 1);
-    }
-    writeBits(outBuffer, offset, 1, 1); // bit 127 = 1
+  while (offset < 127) {
+    writeBits(outBuffer, offset, 0, 1);
   }
+  writeBits(outBuffer, offset, 1, 1); // bit 127 = 1
 
   return (offset + 7) / 8;
 }

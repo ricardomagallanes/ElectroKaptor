@@ -36,7 +36,7 @@ bool loraWanAdr = true;
 bool isTxConfirmed = false;
 
 /* Puerto de aplicación */
-uint8_t appPort = 2;
+uint8_t appPort = 10;
 
 /* Número de reintentos */
 uint8_t confirmedNbTrials = 4;
@@ -72,15 +72,53 @@ bool LoRaWANHandler::begin() {
   return true;
 }
 
-bool LoRaWANHandler::joinOTAA() {
-  Serial.println("[LoRaWAN] Ejecutando Join OTAA por la libreria Heltec...");
+void LoRaWANHandler::process(uint32_t ms) {
+  uint32_t start = millis();
+  while (millis() - start < ms) {
+    Radio.IrqProcess();
+    Mcu.timerhandler();
+    delay(10);
+  }
+}
+
+bool LoRaWANHandler::isJoined() {
+  MibRequestConfirm_t mibReq;
+  mibReq.Type = MIB_NETWORK_JOINED;
+  if (LoRaMacMibGetRequestConfirm(&mibReq) == LORAMAC_STATUS_OK) {
+    _joined = mibReq.Param.IsNetworkJoined;
+  } else {
+    _joined = false;
+  }
+  return _joined;
+}
+
+bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
+  Serial.println("[LoRaWAN] Inicializando LoRaWAN e iniciando transmisión de Join Request...");
   LoRaWAN.init(loraWanClass, loraWanRegion);
   LoRaWAN.join();
-  _joined = true;
-  return true;
+
+  Serial.printf("[LoRaWAN] Esperando respuesta Join-Accept de TTN (timeout: %u ms)...\n", timeoutMs);
+  uint32_t start = millis();
+  while (millis() - start < timeoutMs) {
+    process(100);
+    if (isJoined()) {
+      Serial.println("[LoRaWAN] ¡¡¡CONECTADO EXITOSAMENTE A LA RED TTN (OTAA Join-Accept Recibido)!!!");
+      return true;
+    }
+  }
+
+  Serial.println("[LoRaWAN] ERROR: No se recibió Join-Accept de TTN a tiempo.");
+  return false;
 }
 
 bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t port) {
+  if (!isJoined()) {
+    Serial.println("[LoRaWAN] Alerta: Intentando enviar payload sin estar unido a la red. Reintentando Join...");
+    if (!joinOTAA(15000)) {
+      return false;
+    }
+  }
+
   if (length > LORAWAN_APP_DATA_MAX_SIZE) {
     Serial.println("[LoRaWAN] Error: Payload excede tamaño máximo.");
     return false;
@@ -89,8 +127,18 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
   appDataSize = length;
   appPort = port;
   memcpy(appData, payload, length);
+
+  Serial.printf("[LoRaWAN] Transmitiendo %d bytes por Heltec LoRaWAN stack (Puerto %d)...\n", length, port);
   
-  Serial.printf("[LoRaWAN] Transmitiendo %d bytes por Heltec LoRaWAN stack...\n", length);
-  LoRaWAN.send();
-  return true;
+  // SendFrame() devuelve false (0) si el paquete fue enviado al radio correctamente, o true (1) si ocurrió error.
+  bool err = SendFrame();
+  if (!err) {
+    Serial.println("[LoRaWAN] Paquete enviado al transceiver LoRa. Procesando ventanas de recepción RX1/RX2...");
+    // Mantener activo el procesador de IRQ del radio durante 6 segundos para ventanas de recepción (RX1/RX2)
+    process(6000);
+    return true;
+  } else {
+    Serial.println("[LoRaWAN] Error al enviar frame por el stack LoRaMac.");
+    return false;
+  }
 }

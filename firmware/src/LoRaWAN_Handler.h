@@ -11,10 +11,10 @@ class LoRaWANHandler {
 public:
   LoRaWANHandler();
   bool begin();
-  bool joinOTAA();
-  bool sendPayload(const uint8_t *payload, uint8_t length, uint8_t port = 1);
-  bool isJoined() const { return _joined; }
-  void setJoined(bool joined) { _joined = joined; }
+  bool joinOTAA(uint32_t timeoutMs = 15000);
+  bool sendPayload(const uint8_t *payload, uint8_t length, uint8_t port = 10);
+  bool isJoined();
+  void process(uint32_t ms = 10);
 
 private:
   bool _joined;
