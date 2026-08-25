@@ -5,7 +5,7 @@ ElsterA150Reader::ElsterA150Reader(uint8_t rxPin, uint8_t txPin)
   : _rxPin(rxPin), _txPin(txPin), _irSerial(1) {}
 #elif defined(ARDUINO_ARCH_STM32)
 ElsterA150Reader::ElsterA150Reader(uint8_t rxPin, uint8_t txPin) 
-  : _rxPin(rxPin), _txPin(txPin), _irSerial(USART1) {}
+  : _rxPin(rxPin), _txPin(txPin), _irSerial(PA10, PA9) {}
 #else
 ElsterA150Reader::ElsterA150Reader(uint8_t rxPin, uint8_t txPin) 
   : _rxPin(rxPin), _txPin(txPin), _irSerial(1) {}

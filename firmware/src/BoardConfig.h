@@ -20,6 +20,7 @@
 // CONFIGURACIÓN DE PINES Y PERIFÉRICOS SEGÚN LA PLACA SELECCIONADA
 // =========================================================================
 
+#undef BOARD_NAME
 #if SELECTED_BOARD_MODEL == BOARD_HELTEC_ESP32_S3
 
   #define BOARD_NAME "Heltec ESP32-S3 (WiFi LoRa 32 V3)"

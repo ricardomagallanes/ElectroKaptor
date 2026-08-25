@@ -65,7 +65,7 @@ void updatePowerLed() {
 void initLeds() {
 #ifdef LED_POWER_PIN
   pinMode(LED_POWER_PIN, OUTPUT);
-  updatePowerLed();
+  digitalWrite(LED_POWER_PIN, LOW);
 #endif
 #ifdef LED_FAIL_PIN
   pinMode(LED_FAIL_PIN, OUTPUT);
@@ -78,6 +78,30 @@ void initLeds() {
 #ifdef LED_UNUSED_PIN
   pinMode(LED_UNUSED_PIN, OUTPUT);
   digitalWrite(LED_UNUSED_PIN, LOW);
+#endif
+
+  // BARRIDO VISUAL DE ARRANQUE LED POR LED (D6 -> D5 -> D3 -> D4)
+#if defined(LED_POWER_PIN) && defined(LED_FAIL_PIN) && defined(LED_TX_LORA_PIN) && defined(LED_UNUSED_PIN)
+  // 1. D6 Verde (PB12)
+  digitalWrite(LED_POWER_PIN, HIGH);   delay(400); digitalWrite(LED_POWER_PIN, LOW); delay(100);
+  // 2. D5 Rojo (PB13)
+  digitalWrite(LED_FAIL_PIN, HIGH);    delay(400); digitalWrite(LED_FAIL_PIN, LOW);  delay(100);
+  // 3. D3 Rojo (PB14)
+  digitalWrite(LED_TX_LORA_PIN, HIGH); delay(400); digitalWrite(LED_TX_LORA_PIN, LOW); delay(100);
+  // 4. D4 Rojo (PB15)
+  digitalWrite(LED_UNUSED_PIN, HIGH);  delay(400); digitalWrite(LED_UNUSED_PIN, LOW); delay(100);
+
+  // Destello final de todos juntos (300 ms) y luego TODOS APAGADOS
+  digitalWrite(LED_POWER_PIN, HIGH);
+  digitalWrite(LED_FAIL_PIN, HIGH);
+  digitalWrite(LED_TX_LORA_PIN, HIGH);
+  digitalWrite(LED_UNUSED_PIN, HIGH);
+  delay(300);
+  digitalWrite(LED_POWER_PIN, LOW);
+  digitalWrite(LED_FAIL_PIN, LOW);
+  digitalWrite(LED_TX_LORA_PIN, LOW);
+  digitalWrite(LED_UNUSED_PIN, LOW);
+  delay(500);
 #endif
 }
 
@@ -150,12 +174,30 @@ void loop() {
 
   char l1[32] = "", l2[32] = "", l3[32] = "", l4[32] = "";
 
-  if (meterReader->readMeter(currentData, IR_DEFAULT_TIMEOUT_MS)) {
+#ifdef LED_TX_LORA_PIN
+  digitalWrite(LED_TX_LORA_PIN, HIGH); // Encender LED D3 durante consulta IR
+#endif
+
+  bool readOk = meterReader->readMeter(currentData, IR_DEFAULT_TIMEOUT_MS);
+
+#ifdef LED_TX_LORA_PIN
+  digitalWrite(LED_TX_LORA_PIN, LOW);
+#endif
+
+  if (readOk && currentData.lecturaValida) {
     Serial.println("[IR] Lectura exitosa de registros del medidor DTS27.");
     Serial.printf("  - Tensiones: Va=%u V | Vb=%u V | Vc=%u V\n", currentData.voltajeA, currentData.voltajeB, currentData.voltajeC);
     Serial.printf("  - Corrientes: Ia=%.2f A | Ib=%.2f A | Ic=%.2f A\n", currentData.corrienteA / 100.0, currentData.corrienteB / 100.0, currentData.corrienteC / 100.0);
     Serial.printf("  - CosPhi: %.2f | Frecuencia: %.2f Hz | Energía Imp: %.2f kWh\n",
                   currentData.cosphi / 100.0, currentData.frecuenciaMin / 100.0, currentData.energiaActivaImp / 100.0);
+
+    // Destellar LED Verde (D6) 3 veces rápido para señalar LECTURA IR EXITOSA
+#ifdef LED_POWER_PIN
+    for (int i = 0; i < 3; i++) {
+      digitalWrite(LED_POWER_PIN, LOW); delay(100);
+      digitalWrite(LED_POWER_PIN, HIGH); delay(100);
+    }
+#endif
 
     // Pantalla 1 (4 seg): Tensiones trifásicas y Corrientes A/B
     snprintf(l1, sizeof(l1), "Va:%dV Vb:%dV Vc:%dV", currentData.voltajeA, currentData.voltajeB, currentData.voltajeC);

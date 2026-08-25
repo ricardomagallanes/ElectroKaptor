@@ -149,7 +149,7 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
 #elif SELECTED_BOARD_MODEL == BOARD_STM32F103C8T6
 
 #if defined(ARDUINO_ARCH_STM32)
-HardwareSerial rakSerial(USART2);
+HardwareSerial rakSerial(PA3, PA2);
 #else
 HardwareSerial rakSerial(2);
 #endif
