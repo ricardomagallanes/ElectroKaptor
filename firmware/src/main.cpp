@@ -49,64 +49,6 @@ void initOLED() {
 #endif
 }
 
-void updatePowerLed() {
-#if defined(LED_POWER_PIN) && defined(POWER_SENSE_PIN)
-  pinMode(POWER_SENSE_PIN, INPUT);
-  if (digitalRead(POWER_SENSE_PIN) == HIGH) {
-    digitalWrite(LED_POWER_PIN, HIGH);
-  } else {
-    digitalWrite(LED_POWER_PIN, LOW);
-  }
-#elif defined(LED_POWER_PIN)
-  digitalWrite(LED_POWER_PIN, HIGH);
-#endif
-}
-
-void runPinScannerTest() {
-#if defined(ARDUINO_ARCH_STM32)
-  uint8_t pinsToTest[] = {
-    PA0, PA1, PA4, PA5, PA6, PA7, PA8, PA11, PA12, PA15,
-    PB0, PB1, PB2, PB3, PB4, PB5, PB6, PB7, PB8, PB9, PB10, PB11, PB12, PB13, PB14, PB15,
-    PC13, PC14, PC15
-  };
-
-  // 1. Apagar todos inicialmente
-  for (uint8_t i = 0; i < sizeof(pinsToTest); i++) {
-    pinMode(pinsToTest[i], OUTPUT);
-    digitalWrite(pinsToTest[i], LOW);
-  }
-
-  // 2. Barrido HIGH (catodo común)
-  for (uint8_t i = 0; i < sizeof(pinsToTest); i++) {
-    uint8_t p = pinsToTest[i];
-    digitalWrite(p, HIGH);
-    delay(150);
-    digitalWrite(p, LOW);
-  }
-
-  delay(400);
-
-  // 3. Encender todos a la vez (LOW - anodo común)
-  for (uint8_t i = 0; i < sizeof(pinsToTest); i++) {
-    digitalWrite(pinsToTest[i], LOW);
-  }
-  delay(400);
-
-  // 4. Barrido LOW (anodo común)
-  for (uint8_t i = 0; i < sizeof(pinsToTest); i++) {
-    uint8_t p = pinsToTest[i];
-    digitalWrite(p, HIGH); // Apaga en anodo comun
-    delay(150);
-    digitalWrite(p, LOW);
-  }
-
-  // 5. Restablecer todos a apagar
-  for (uint8_t i = 0; i < sizeof(pinsToTest); i++) {
-    digitalWrite(pinsToTest[i], LOW);
-  }
-#endif
-}
-
 void initLeds() {
 #ifdef LED_FAIL_PIN
   pinMode(LED_FAIL_PIN, OUTPUT);
@@ -119,28 +61,6 @@ void initLeds() {
 #ifdef LED_UNUSED_PIN
   pinMode(LED_UNUSED_PIN, OUTPUT);
   digitalWrite(LED_UNUSED_PIN, LOW);
-#endif
-
-  // SECUENCIA DE BARRIDO DE ARRANQUE (3 LEDs Rojos: D5 (PB13) -> D3 (PB14) -> D4 (PB15))
-#if defined(LED_FAIL_PIN) && defined(LED_TX_LORA_PIN) && defined(LED_UNUSED_PIN)
-  for (int cycle = 0; cycle < 3; cycle++) {
-    // 1. D5 (Rojo superior - PB13)
-    digitalWrite(LED_FAIL_PIN, HIGH);    delay(300); digitalWrite(LED_FAIL_PIN, LOW);    delay(100);
-    // 2. D3 (Rojo medio - PB14)
-    digitalWrite(LED_TX_LORA_PIN, HIGH); delay(300); digitalWrite(LED_TX_LORA_PIN, LOW);  delay(100);
-    // 3. D4 (Rojo inferior - PB15)
-    digitalWrite(LED_UNUSED_PIN, HIGH);  delay(300); digitalWrite(LED_UNUSED_PIN, LOW);  delay(100);
-  }
-
-  // Destello final de los 3 rojos juntos (400 ms) y luego TODOS APAGADOS
-  digitalWrite(LED_FAIL_PIN, HIGH);
-  digitalWrite(LED_TX_LORA_PIN, HIGH);
-  digitalWrite(LED_UNUSED_PIN, HIGH);
-  delay(400);
-  digitalWrite(LED_FAIL_PIN, LOW);
-  digitalWrite(LED_TX_LORA_PIN, LOW);
-  digitalWrite(LED_UNUSED_PIN, LOW);
-  delay(500);
 #endif
 }
 
@@ -187,7 +107,7 @@ void setup() {
   // Inicializar lector infrarrojo
   meterReader->begin(IR_DEFAULT_BAUD_RATE);
 
-  // Parpadear LED Tx durante inicio / handshake OTAA
+  // Parpadear LED 3 (LoRa) durante inicio / handshake OTAA
   blinkTxLed(4, 250);
 
   // Inicializar stack LoRaWAN
@@ -212,15 +132,7 @@ void loop() {
 
   char l1[32] = "", l2[32] = "", l3[32] = "", l4[32] = "";
 
-#ifdef LED_TX_LORA_PIN
-  digitalWrite(LED_TX_LORA_PIN, HIGH); // Encender LED D3 durante consulta IR
-#endif
-
   bool readOk = meterReader->readMeter(currentData, IR_DEFAULT_TIMEOUT_MS);
-
-#ifdef LED_TX_LORA_PIN
-  digitalWrite(LED_TX_LORA_PIN, LOW);
-#endif
 
   if (readOk && currentData.lecturaValida) {
     Serial.println("[IR] Lectura exitosa de registros del medidor DTS27.");
@@ -228,14 +140,6 @@ void loop() {
     Serial.printf("  - Corrientes: Ia=%.2f A | Ib=%.2f A | Ic=%.2f A\n", currentData.corrienteA / 100.0, currentData.corrienteB / 100.0, currentData.corrienteC / 100.0);
     Serial.printf("  - CosPhi: %.2f | Frecuencia: %.2f Hz | Energía Imp: %.2f kWh\n",
                   currentData.cosphi / 100.0, currentData.frecuenciaMin / 100.0, currentData.energiaActivaImp / 100.0);
-
-    // Destellar LED D4 3 veces rápido para señalar LECTURA IR EXITOSA
-#ifdef LED_UNUSED_PIN
-    for (int i = 0; i < 3; i++) {
-      digitalWrite(LED_UNUSED_PIN, HIGH); delay(100);
-      digitalWrite(LED_UNUSED_PIN, LOW);  delay(100);
-    }
-#endif
 
     // Pantalla 1 (4 seg): Tensiones trifásicas y Corrientes A/B
     snprintf(l1, sizeof(l1), "Va:%dV Vb:%dV Vc:%dV", currentData.voltajeA, currentData.voltajeB, currentData.voltajeC);
@@ -264,6 +168,8 @@ void loop() {
     Serial.println("[IR] Alerta: No se pudo establecer sincronización con el medidor. Enviando mensaje de estado.");
     currentData.estado = 2; // Sin Lectura / Error IR
     currentData.tipoMedidor = 2; // Trifásico DTS27
+    
+    // LED 2 (Fail - PB13): Parpadea ante cualquier fallo y luego se apaga
     blinkFailLed(3, 200);
     oledShowStatus(" ALERTA IR ", "Sin Sincronismo", "Verifique sonda IR", "DTS27 DESCONECTADO");
   }
@@ -295,6 +201,11 @@ void loop() {
   txLen = len;
 #endif
 
+  // Encender LED 3 (LoRa - PB14) fijo durante la transmisión del dato por LoRaWAN
+#ifdef LED_TX_LORA_PIN
+  digitalWrite(LED_TX_LORA_PIN, HIGH);
+#endif
+
   // Intentar envío de paquete por LoRaWAN
   bool sentOk = lora.sendPayload(txBuffer, txLen, 10);
   if (!sentOk) {
@@ -304,13 +215,17 @@ void loop() {
     }
   }
 
+#ifdef LED_TX_LORA_PIN
+  digitalWrite(LED_TX_LORA_PIN, LOW); // Apagar LED 3 (LoRa) al finalizar envío
+#endif
+
   if (sentOk) {
     Serial.println("[LoRaWAN] Telemetria enviada con éxito.");
-    blinkTxLed(3, 100);
     oledShowStatus(" TELEMETRIA LORA ", "DATOS ENVIADOS", "Enviado a TTN OK", "DTS27 CONECTADO");
     lora.process(2000);
   } else {
     Serial.println("[LoRaWAN] ALERTA CRITICA: Falló el envío de datos por LoRaWAN.");
+    // LED 2 (Fail - PB13): Parpadea en fallo de envío y luego se apaga
     blinkFailLed(4, 150);
     oledShowStatus(" ERROR LORAWAN ", "Fallo Envio Paquete", "Revisar Gateway AU915", "REINTENTANDO...");
     lora.process(3000);

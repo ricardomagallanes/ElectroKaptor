@@ -52,11 +52,11 @@ Este documento contiene la radiografía técnica completa y el relevamiento de h
 
 ### Componentes Identificados:
 1. **Fuente Interna AC/DC:** Módulo **Hi-Link HLK-PM01** (Entrada 100-240V AC -> Salida 5V DC 3W), protegido por fusible de 500mA (`F1`) y varistor de protección frente a sobretensiones (`KV1`).
-2. **LEDs Indicadores de Estado (Lado inferior PCB):**
-   - **D6 (Verde superior):** Indicador de Alimentación de Red 220V AC por Hardware (Puenteado en PCB directamente a la salida de la fuente Hi-Link; no depende de control GPIO por firmware).
-   - **D5 (Rojo superior):** Pin `PB13` (Control por Software - Falla / Alerta).
-   - **D3 (Rojo medio):** Pin `PB14` (Control por Software - Actividad Lectura IR / LoRaWAN).
-   - **D4 (Rojo inferior):** Pin `PB15` (Control por Software - Estado Auxiliar).
+2. **Orden y Función Especificada de los LEDs (Lado inferior PCB):**
+   - **1. LED Verde (D6 - Verde Superior):** Estado de energía de red 220V AC. Conectado por hardware a la fuente interna; no se maneja por software.
+   - **2. LED Rojo 2 (D5 - Rojo Superior, Pin `PB13`):** Corresponde al estado **FAIL**. Parpadea ante cualquier fallo/alerta de comunicación y luego se apaga.
+   - **3. LED Rojo 3 (D3 - Rojo Medio, Pin `PB14`):** Corresponde a la función **LoRaWAN**. Parpadea durante el intento de Join OTAA y se mantiene encendido fijo durante la transmisión del dato por LoRaWAN; luego se apaga.
+   - **4. LED Rojo 4 (D4 - Rojo Inferior, Pin `PB15`):** No se usa.
 3. **Conectores Serie y Headers:**
    - **Header SWD:** 4 pads en la parte superior para programación ST-Link V2 (`SWDIO`, `SWCLK`, `3.3V`, `GND`).
    - **Header J12 y Resistencias R20 / R21:** Forman el bus de comunicación serie UART de comandos AT entre el STM32F103 (Host) y los pines `UART2_TX` / `UART2_RX` del módulo RAK3172. `R20` y `R21` son resistencias en serie de protección en las líneas TX/RX.
