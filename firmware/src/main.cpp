@@ -35,7 +35,8 @@ void setup() {
 
   // Inicializar Módem LoRaWAN RAK3172 (PB6 TX / PB7 RX, PA1 Reset)
   if (g_loraHandler.begin()) {
-    if (g_loraHandler.joinOTAA(25000)) {
+    // Intentar Join OTAA con el nuevo DevEUI (AC1F09FFFE24F68B) y mascara FSB2
+    if (g_loraHandler.joinOTAA(30000)) {
       digitalWrite(LED_LORA_PIN, HIGH); // Encender LED LoRa al conectar
     } else {
       digitalWrite(LED_ERROR_PIN, HIGH);
@@ -53,7 +54,7 @@ void loop() {
   // Reintento automático de Join si se desconecta
   if (!g_loraHandler.isJoined()) {
     digitalWrite(LED_LORA_PIN, LOW);
-    if (g_loraHandler.joinOTAA(20000)) {
+    if (g_loraHandler.joinOTAA(25000)) {
       digitalWrite(LED_LORA_PIN, HIGH);
       digitalWrite(LED_ERROR_PIN, LOW);
     }
