@@ -158,8 +158,9 @@ LoRaWANHandler::LoRaWANHandler() : _joined(false) {}
 bool LoRaWANHandler::begin() {
   Serial.println("[LoRaWAN] Inicializando módem RAK3172 sobre USART2 (Serial2)...");
 #if defined(ARDUINO_ARCH_STM32)
+  pinMode(PA3, INPUT_PULLUP);
   rakSerial.begin(9600);
-  delay(300);
+  delay(100);
   while (rakSerial.available()) rakSerial.read();
 
   rakSerial.print("AT\r\n");

@@ -52,9 +52,36 @@
 
   #define BOARD_NAME "STM32F103C8T6 (Blue Pill)"
 
-  // Puerto serie UART Infrarrojo (Serial1: PA10=RX, PA9=TX)
-  #define IR_RX_PIN PA10
-  #define IR_TX_PIN PA9
+  // =========================================================================
+  // CONFIGURACIÓN DE PINES DEL MÓDULO ÓPTICO / INFRARROJO (IEC 62056-21)
+  // =========================================================================
+  // Par ACTIVO seleccionado y verificado por barrido físico: PA9 (TX) / PA10 (RX)
+  #define IR_TX_PIN PA9   // USART1_TX (Salida TX hacia LED IR del puerto óptico)
+  #define IR_RX_PIN PA10  // USART1_RX (Entrada RX desde fototransistor del puerto óptico)
+
+  /*
+   * PINES ALTERNATIVOS AUDITADOS Y DISPONIBLES EN HARDWARE (Comentados para referencia):
+   * 
+   * // Opción 1 (USART1 nativo): PA9 (TX) / PA10 (RX) -> GANADOR VERIFICADO
+   * // #define IR_TX_PIN PA9
+   * // #define IR_RX_PIN PA10
+   * 
+   * // Opción 2 (USART3 nativo): PB10 (TX) / PB11 (RX)
+   * // #define IR_TX_PIN PB10
+   * // #define IR_RX_PIN PB11
+   * 
+   * // Opción 3 (USART2 nativo): PA2 (TX) / PA3 (RX)
+   * // #define IR_TX_PIN PA2
+   * // #define IR_RX_PIN PA3
+   * 
+   * // Opción 4 (Bit-banging software): PB6 (TX) / PB7 (RX)
+   * // #define IR_TX_PIN PB6
+   * // #define IR_RX_PIN PB7
+   * 
+   * // Opción 5 (Bit-banging software): PB12 (TX) / PB13 (RX)
+   * // #define IR_TX_PIN PB12
+   * // #define IR_RX_PIN PB13
+   */
 
   // Pines de Radio LoRaWAN SPI (Módulo externo RFM95W / SX1276 / SX1262)
   #define LORA_NSS_PIN   PA4

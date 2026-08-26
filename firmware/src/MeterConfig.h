@@ -17,8 +17,8 @@
 #define SELECTED_METER_MODEL    METER_MODEL_MIDDE_DTS27
 #define SELECTED_PAYLOAD_FORMAT PAYLOAD_FORMAT_ASCII_HEX
 
-// Configuración de comunicación infrarroja (DTS27 velocidad 9600 baudios)
-#define IR_DEFAULT_BAUD_RATE  9600
+// Configuración de comunicación infrarroja (DTS27 protocolo IEC 62056-21 Modo C a 300 baudios 7E1)
+#define IR_DEFAULT_BAUD_RATE  300
 #define IR_DEFAULT_TIMEOUT_MS 10000
 
 #endif // METER_CONFIG_H

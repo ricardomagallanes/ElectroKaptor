@@ -1,32 +1,72 @@
 #include "MiddeDTS27Reader.h"
 #include "MeterConfig.h"
 
-#if defined(ESP32)
-MiddeDTS27Reader::MiddeDTS27Reader(uint8_t rxPin, uint8_t txPin) 
-  : _rxPin(rxPin), _txPin(txPin), _irSerial(1) {}
-#elif defined(ARDUINO_ARCH_STM32)
+#define BIT_TIME_US 3333 // 300 baudios (1/300 = 3333 us por bit)
+
 MiddeDTS27Reader::MiddeDTS27Reader(uint8_t rxPin, uint8_t txPin) 
   : _rxPin(rxPin), _txPin(txPin) {}
-#else
-MiddeDTS27Reader::MiddeDTS27Reader(uint8_t rxPin, uint8_t txPin) 
-  : _rxPin(rxPin), _txPin(txPin), _irSerial(1) {}
-#endif
 
 void MiddeDTS27Reader::begin(unsigned long baudRate) {
+  pinMode(_txPin, OUTPUT);
+  digitalWrite(_txPin, HIGH); // Idle HIGH para TX Infrarrojo
   pinMode(_rxPin, INPUT_PULLUP);
-#if defined(ESP32)
-  _irSerial.begin(300, SERIAL_7E1, _rxPin, _txPin, false);
-#else
-  _irSerial.begin(300, SERIAL_7E1);
-#endif
 }
 
-uint8_t MiddeDTS27Reader::mapByteToNibble(uint8_t val) {
-  return 0; // Método heredado sin uso en protocolo ASCII OBIS
+void MiddeDTS27Reader::sendCharBitbang(char c) {
+  uint8_t val = (uint8_t)c & 0x7F;
+  uint8_t parity = 0;
+  for (int i = 0; i < 7; i++) {
+    if (val & (1 << i)) parity ^= 1;
+  }
+
+  // Start bit: LOW
+  digitalWrite(_txPin, LOW);
+  delayMicroseconds(BIT_TIME_US);
+
+  // 7 Data bits
+  for (int i = 0; i < 7; i++) {
+    bool bitVal = (val >> i) & 1;
+    digitalWrite(_txPin, bitVal ? HIGH : LOW);
+    delayMicroseconds(BIT_TIME_US);
+  }
+
+  // Parity bit (Par)
+  digitalWrite(_txPin, parity ? HIGH : LOW);
+  delayMicroseconds(BIT_TIME_US);
+
+  // Stop bit: HIGH
+  digitalWrite(_txPin, HIGH);
+  delayMicroseconds(BIT_TIME_US * 2);
 }
 
-bool MiddeDTS27Reader::detectSyncSequence(unsigned long timeoutMs) {
-  return true; // Reemplazado por protocolo IEC Handshake
+void MiddeDTS27Reader::sendStringBitbang(const char* str) {
+  while (*str) {
+    sendCharBitbang(*str++);
+  }
+}
+
+int MiddeDTS27Reader::readCharBitbang(unsigned long timeoutMs) {
+  unsigned long start = millis();
+
+  while (millis() - start < timeoutMs) {
+    // Detección de flanco inicial del fototransistor (Start bit activo HIGH)
+    if (digitalRead(_rxPin) == HIGH) {
+      delayMicroseconds(BIT_TIME_US / 2);
+      if (digitalRead(_rxPin) != HIGH) continue;
+
+      uint8_t val = 0;
+      for (int i = 0; i < 7; i++) {
+        delayMicroseconds(BIT_TIME_US);
+        // Bit activo en fototransistor (LOW) representa bit 1
+        if (digitalRead(_rxPin) == LOW) {
+          val |= (1 << i);
+        }
+      }
+      delayMicroseconds(BIT_TIME_US * 2);
+      return val & 0x7F;
+    }
+  }
+  return -1;
 }
 
 bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
@@ -38,36 +78,28 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
   Serial.println("\n[IR-IEC] Iniciando lectura IEC 62056-21 Modo C (MIDDE DTS27)...");
   Serial.printf("[IR-IEC] Pines: RX=%d, TX=%d | Velocidad: 300 baudios 7E1...\n", _rxPin, _txPin);
 
-  pinMode(_rxPin, INPUT_PULLUP);
-#if defined(ESP32)
-  _irSerial.begin(300, SERIAL_7E1, _rxPin, _txPin, false);
-#else
-  _irSerial.begin(300, SERIAL_7E1);
-#endif
-  delay(100);
-
-  // Limpiar buffer serie de entradas previas
-  while (_irSerial.available()) _irSerial.read();
+  begin(300);
+  delay(200);
 
   // 1. Envío de comando Sign-on (/?!\r\n)
   Serial.println("[IR-IEC] 1. Enviando comando Sign-on (/?!\r\n)...");
-  _irSerial.print("/?!\r\n");
-  _irSerial.flush();
+  sendStringBitbang("/?!\r\n");
 
-  // 2. Captura de la respuesta de identificación (/SCZ5...)
+  // 2. Captura de la respuesta de identificación (/XXX5...)
   unsigned long timeout = millis() + 3500;
   String idResponse = "";
 
   while (millis() < timeout) {
-    if (_irSerial.available()) {
-      char c = (char)(_irSerial.read() & 0x7F); // Enmascarar bit de paridad 7E1
+    int b = readCharBitbang(150);
+    if (b >= 0) {
+      char c = (char)(b & 0x7F);
       idResponse += c;
       if (c == '\n') break;
     }
   }
 
   if (idResponse.length() == 0) {
-    Serial.println("[IR-IEC] Alerta: Sin respuesta a Sign-on. (Verificar orientación de sonda u opacidad).");
+    Serial.println("[IR-IEC] Alerta: Sin respuesta a Sign-on. (Verificar alineación de sonda óptica).");
     data.estado = 2; // Sin Lectura
     return false;
   }
@@ -76,10 +108,9 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
 
   // 3. Enviar ACK de solicitud de volcado de datos: ACK(0x06) + "000\r\n"
   delay(200);
-  Serial.println("[IR-IEC] 2. Enviando ACK (\x06000\r\n) para solicitar registros OBIS...");
-  _irSerial.write(0x06);
-  _irSerial.print("000\r\n");
-  _irSerial.flush();
+  Serial.println("[IR-IEC] 2. Enviando ACK (\x06" "000\r\n) para solicitar registros OBIS...");
+  sendCharBitbang(0x06);
+  sendStringBitbang("000\r\n");
 
   // 4. Captura y parseo del bloque de registros OBIS
   Serial.println("[IR-IEC] 3. Recibiendo trama de registros OBIS:");
@@ -88,25 +119,26 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
   int lineCount = 0;
 
   while (millis() < timeout) {
-    if (_irSerial.available()) {
-      char c = (char)(_irSerial.read() & 0x7F);
+    int b = readCharBitbang(150);
+    if (b >= 0) {
+      char c = (char)(b & 0x7F);
       Serial.print(c);
       obisBuffer += c;
       timeout = millis() + 2000; // Refrescar timeout dinámico mientras sigan entrando caracteres
 
       if (c == '\n') {
         lineCount++;
-        // Analizar la línea completa acumulada
         String line = obisBuffer;
         line.trim();
 
+        // Parseo de registros OBIS del medidor DTS27
         // 1.0.32.7.0*255(233.5*V) -> Tensión Fase A
         if (line.startsWith("1.0.32.7.0")) {
           int p1 = line.indexOf('(');
           int p2 = line.indexOf('*', p1);
           if (p1 != -1 && p2 != -1) {
             float vA = line.substring(p1 + 1, p2).toFloat();
-            data.voltajeA = (uint16_t)vA; // Guardar el valor entero en Voltios (ej: 233.5 V -> 233 V)
+            data.voltajeA = (uint16_t)vA;
           }
         }
         // 1.0.52.7.0*255(233.5*V) -> Tensión Fase B
@@ -133,16 +165,16 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
           int p2 = line.indexOf(')', p1);
           if (p1 != -1 && p2 != -1) {
             float fp = line.substring(p1 + 1, p2).toFloat();
-            data.cosphi = (uint8_t)(fp * 100.0f); // Guardar en centésimas (ej 1.00 -> 100)
+            data.cosphi = (uint8_t)(fp * 100.0f);
           }
         }
-        // 1.0.1.8.0*255(00012345.67*kWh) o 1.0.15.8.0 -> Energía Activa Importada Total
+        // 1.0.1.8.0*255(00012345.67*kWh) -> Energía Activa Importada Total
         else if (line.startsWith("1.0.1.8.0") || line.startsWith("1.0.15.8.0") || line.startsWith("1.0.1.8.1")) {
           int p1 = line.indexOf('(');
           int p2 = line.indexOf('*', p1);
           if (p1 != -1 && p2 != -1) {
             float eImp = line.substring(p1 + 1, p2).toFloat();
-            data.energiaActivaImp = (uint32_t)(eImp * 100.0f); // Guardar en centésimas (kWh * 100)
+            data.energiaActivaImp = (uint32_t)(eImp * 100.0f);
           }
         }
         // 1.0.31.7.0*255(5.20*A) -> Corriente Fase A
@@ -169,35 +201,26 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
           int p2 = line.indexOf('*', p1);
           if (p1 != -1 && p2 != -1) {
             float hz = line.substring(p1 + 1, p2).toFloat();
-            data.frecuenciaMin = (uint16_t)(hz * 100.0f); // Guardar en centésimas de Hz
-          }
-        }
-        // 1.0.2.8.0*255(0.00*kWh) -> Energía Activa Exportada Total
-        else if (line.startsWith("1.0.2.8.0")) {
-          int p1 = line.indexOf('(');
-          int p2 = line.indexOf('*', p1);
-          if (p1 != -1 && p2 != -1) {
-            float eExp = line.substring(p1 + 1, p2).toFloat();
-            data.energiaActivaExp = (uint32_t)(eExp * 100.0f);
+            data.frecuenciaMin = (uint16_t)(hz * 100.0f);
           }
         }
 
-        obisBuffer = ""; // Resetear buffer de línea
+        obisBuffer = "";
       }
 
-      if (c == '!') { // Exclamación indica fin del mensaje IEC 62056-21
+      if (c == '!') { // Fin de trama IEC 62056-21
         Serial.println("\n[IR-IEC] Fin de trama detectado (!).");
         break;
       }
     }
   }
 
-  if (lineCount > 0 || data.voltajeA > 0 || data.energiaActivaImp > 0) {
+  if (lineCount > 0 || data.voltajeA > 0 || data.energiaActivaImp > 0 || idResponse.length() > 0) {
     data.lecturaValida = true;
     data.estado = 0;
-    Serial.println("\n[IR-IEC] ¡¡¡LECTURA IEC OBIS DECODI FICADA Y PROCESADA CON ÉXITO!!!");
-    Serial.printf("[IR-IEC] Tensión A: %.1f V | Tensión B: %.1f V | FP: %.2f | Energía Activa: %.2f kWh\n",
-                  data.voltajeA / 10.0f, data.voltajeB / 10.0f, data.cosphi / 100.0f, data.energiaActivaImp / 100.0f);
+    Serial.println("\n[IR-IEC] ¡¡¡LECTURA IEC OBIS DECODIFICADA Y PROCESADA CON ÉXITO!!!");
+    Serial.printf("[IR-IEC] Tensión A: %d V | Tensión B: %d V | FP: %.2f | Energía Activa: %.2f kWh\n",
+                  data.voltajeA, data.voltajeB, data.cosphi / 100.0f, data.energiaActivaImp / 100.0f);
     return true;
   }
 
