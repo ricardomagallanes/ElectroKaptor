@@ -271,7 +271,9 @@ bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
   appKeyStr[32] = '\0';
 
   sendAtCmdLocal("AT+NWM=1", "OK", 1000);
-  sendAtCmdLocal("AT+BAND=6", "OK", 1000); // AU915
+  sendAtCmdLocal("AT+BAND=6", "OK", 1000);   // AU915
+  sendAtCmdLocal("AT+MASK=0002", "OK", 1000); // FSB2 (Canales 8-15 usados por TTN)
+  sendAtCmdLocal("AT+CHE=2", "OK", 1000);     // FSB2 (Configuración alternativa RAK)
 
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+DEVEUI=%s", devEuiStr);
   sendAtCmdLocal(cmdBuf, "OK", 1000);
