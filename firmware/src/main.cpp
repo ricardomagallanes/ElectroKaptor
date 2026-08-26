@@ -1,89 +1,126 @@
 #include <Arduino.h>
 #include "BoardConfig.h"
 #include "MeterConfig.h"
-#include "MeterReaderFactory.h"
-#include "LoRaWAN_Handler.h"
-#include "BitPacker.h"
+#include "MiddeDTS27Reader.h"
+#include "Credentials.h"
+
+#define STATUS_LED_PIN 13
 
 extern "C" __attribute__((used)) void HardFault_Handler(void) { NVIC_SystemReset(); }
 extern "C" __attribute__((used)) void BusFault_Handler(void) { NVIC_SystemReset(); }
 extern "C" __attribute__((used)) void UsageFault_Handler(void) { NVIC_SystemReset(); }
 extern "C" __attribute__((used)) void ADC1_2_IRQHandler(void) {}
 
-static IMeterReader* g_meterReader = nullptr;
-static LoRaWANHandler g_loraHandler;
+static const uint8_t devEuiBytes[] = LORAWAN_DEV_EUI;
+static const uint8_t appEuiBytes[] = LORAWAN_APP_EUI;
+static const uint8_t appKeyBytes[] = LORAWAN_APP_KEY;
+
+// Variables de estado global en RAM
+volatile uint32_t g_meterReadValid = 0;
+volatile uint32_t g_energiaActiva = 0;
+
+volatile uint32_t g_loraJoined = 0;
+volatile uint32_t g_joinAttempts = 0;
+
+void sendAtCmdHw(const char* cmd) {
+  Serial1.print(cmd);
+  Serial1.print("\r\n");
+  delay(100);
+}
+
+void bytesToHexStr(const uint8_t* src, uint8_t len, char* dst) {
+  const char hexChars[] = "0123456789ABCDEF";
+  for (uint8_t i = 0; i < len; i++) {
+    dst[i * 2]     = hexChars[(src[i] >> 4) & 0x0F];
+    dst[i * 2 + 1] = hexChars[src[i] & 0x0F];
+  }
+  dst[len * 2] = '\0';
+}
+
+void configureRak3172Hw() {
+  pinMode(PA1, OUTPUT);
+  digitalWrite(PA1, LOW);  delay(50);
+  digitalWrite(PA1, HIGH); delay(250);
+
+  Serial1.setTx(PB6);
+  Serial1.setRx(PB7);
+  Serial1.begin(115200);
+  delay(100);
+
+  Serial1.print("\r\n"); delay(100);
+
+  char devEuiStr[17], appEuiStr[17], appKeyStr[33], cmdBuf[128];
+  bytesToHexStr(devEuiBytes, 8, devEuiStr);
+  bytesToHexStr(appEuiBytes, 8, appEuiStr);
+  bytesToHexStr(appKeyBytes, 16, appKeyStr);
+
+  sendAtCmdHw("AT+NWM=1");
+  sendAtCmdHw("AT+BAND=6");    // AU915
+  sendAtCmdHw("AT+MASK=0002");  // FSB2 (Canales 8-15)
+  sendAtCmdHw("AT+CHE=2");
+  sendAtCmdHw("AT+DR=0");       // Data Rate 0 (SF10 125kHz para máximo alcance)
+  sendAtCmdHw("AT+TXP=0");      // Potencia de transmisión máxima
+
+  snprintf(cmdBuf, sizeof(cmdBuf), "AT+DEVEUI=%s", devEuiStr);
+  sendAtCmdHw(cmdBuf);
+
+  snprintf(cmdBuf, sizeof(cmdBuf), "AT+APPEUI=%s", appEuiStr);
+  sendAtCmdHw(cmdBuf);
+
+  snprintf(cmdBuf, sizeof(cmdBuf), "AT+APPKEY=%s", appKeyStr);
+  sendAtCmdHw(cmdBuf);
+}
 
 void setup() {
   volatile void* dummy1 = (void*)&ADC1_2_IRQHandler;
   volatile void* dummy2 = (void*)&HardFault_Handler;
   (void)dummy1; (void)dummy2;
 
-  // Habilitar DWT CYCCNT para microsegundos exactos
-  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+  pinMode(STATUS_LED_PIN, OUTPUT);
+  digitalWrite(STATUS_LED_PIN, HIGH);
 
-  // Inicializar LEDs de estado
-  pinMode(LED_LORA_PIN, OUTPUT);  digitalWrite(LED_LORA_PIN, LOW);
-  pinMode(LED_ERROR_PIN, OUTPUT); digitalWrite(LED_ERROR_PIN, LOW);
-  pinMode(LED_MCU_PIN, OUTPUT);   digitalWrite(LED_MCU_PIN, HIGH);
-
-  // Crear Lector de Medidor Óptico DTS27 (PA9 TX / PA10 RX)
-  g_meterReader = MeterReaderFactory::createMeterReader(IR_RX_PIN, IR_TX_PIN);
-  if (g_meterReader) {
-    g_meterReader->begin(IR_DEFAULT_BAUD_RATE);
-  }
-
-  // Inicializar Módem LoRaWAN RAK3172 (PB6 TX / PB7 RX, PA1 Reset)
-  if (g_loraHandler.begin()) {
-    // Intentar Join OTAA con el nuevo DevEUI (AC1F09FFFE24F68B) y mascara FSB2
-    if (g_loraHandler.joinOTAA(30000)) {
-      digitalWrite(LED_LORA_PIN, HIGH); // Encender LED LoRa al conectar
-    } else {
-      digitalWrite(LED_ERROR_PIN, HIGH);
-    }
-  } else {
-    digitalWrite(LED_ERROR_PIN, HIGH);
-  }
+  // Inicializar módem RAK3172 por HardwareSerial1 (PB6 TX / PB7 RX)
+  configureRak3172Hw();
 }
 
 void loop() {
-  // Parpadeo LED Status MCU
-  digitalWrite(LED_MCU_PIN, LOW);  delay(100);
-  digitalWrite(LED_MCU_PIN, HIGH); delay(100);
+  // Bucle de Join OTAA continuo
+  if (!g_loraJoined) {
+    g_joinAttempts++;
 
-  // Reintento automático de Join si se desconecta
-  if (!g_loraHandler.isJoined()) {
-    digitalWrite(LED_LORA_PIN, LOW);
-    if (g_loraHandler.joinOTAA(25000)) {
-      digitalWrite(LED_LORA_PIN, HIGH);
-      digitalWrite(LED_ERROR_PIN, LOW);
+    digitalWrite(STATUS_LED_PIN, LOW);  delay(100);
+    digitalWrite(STATUS_LED_PIN, HIGH); delay(100);
+
+    sendAtCmdHw("AT+JOIN=1:0:10:8");
+
+    unsigned long start = millis();
+    while (millis() - start < 10000) {
+      if (Serial1.available()) {
+        String rx = Serial1.readStringUntil('\n');
+        if (rx.indexOf("+EVT:JOINED") != -1 || rx.indexOf("JOINED") != -1) {
+          g_loraJoined = 1;
+          digitalWrite(STATUS_LED_PIN, LOW); // Encendido fijo al conectar
+          break;
+        }
+      }
     }
-  }
+  } else {
+    // Lectura periódica de medidor óptico cada 30 segundos
+    static unsigned long lastRead = 0;
+    if (millis() - lastRead > 30000 || lastRead == 0) {
+      lastRead = millis();
+      MiddeDTS27Reader reader(PA10, PA9);
+      MeterData mData;
+      if (reader.readMeter(mData, 3000)) {
+        g_meterReadValid = 1;
+        g_energiaActiva = mData.energiaActivaImp;
 
-  // Lectura periódica del medidor óptico cada 30 segundos
-  static unsigned long lastRead = 0;
-  if (millis() - lastRead > 30000 || lastRead == 0) {
-    lastRead = millis();
-
-    MeterData data;
-    if (g_meterReader && g_meterReader->readMeter(data)) {
-      uint8_t payload[32];
-      uint8_t len = 0;
-
-#if SELECTED_PAYLOAD_FORMAT == PAYLOAD_FORMAT_ASCII_HEX
-      char asciiBuf[32];
-      snprintf(asciiBuf, sizeof(asciiBuf), "%010lu%010lu", data.energiaActivaImp, data.energiaReactivaImp);
-      len = strlen(asciiBuf);
-      memcpy(payload, asciiBuf, len);
-#else
-      len = BitPacker::packMeterData(data, payload, sizeof(payload));
-#endif
-
-      if (len > 0 && g_loraHandler.isJoined()) {
-        g_loraHandler.sendPayload(payload, len, 10);
+        char sendCmd[64];
+        snprintf(sendCmd, sizeof(sendCmd), "AT+SEND=10:%08X", (unsigned int)g_energiaActiva);
+        sendAtCmdHw(sendCmd);
+      } else {
+        g_meterReadValid = 0;
       }
     }
   }
-
-  g_loraHandler.process(100);
 }
