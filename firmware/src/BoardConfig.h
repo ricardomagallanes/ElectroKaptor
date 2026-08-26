@@ -3,112 +3,84 @@
 
 #include <Arduino.h>
 
-// Modelos de placas de desarrollo soportadas
 #define BOARD_HELTEC_ESP32_S3  1
 #define BOARD_STM32F103C8T6    2
 
-// =========================================================================
-// SELECCIÓN DE LA PLACA DE DESARROLLO ACTIVA (Auto-detectada o Manual)
-// =========================================================================
-#if defined(STM32F103xB) || defined(ARDUINO_ARCH_STM32)
-  #define SELECTED_BOARD_MODEL BOARD_STM32F103C8T6
-#else
-  #define SELECTED_BOARD_MODEL BOARD_HELTEC_ESP32_S3
-#endif
+/**
+ * ============================================================================
+ * @file BoardConfig.h
+ * @brief Configuración de Hardware de la Placa Principal ME_LoRa_v3.6 (STM32F103C8T6)
+ * ============================================================================
+ * 
+ * MAPA FINAL DE PINES VERIFICADO EN HARDWARE:
+ * 
+ * 1. PUERTO ÓPTICO (IEC 62056-21 Modo C / Medidor DTS27):
+ *    - IR_TX_PIN : PA9  (USART1 TX Nativo)
+ *    - IR_RX_PIN : PA10 (USART1 RX Nativo)
+ *    - Baudrate  : 300 baudios, 7E1 (Modo C Handshake)
+ * 
+ * 2. MÓDULO LORAWAN (RAK3172 AT Modem):
+ *    - LORA_TX_PIN  : PB6 (USART1 TX Remappeado)
+ *    - LORA_RX_PIN  : PB7 (USART1 RX Remappeado)
+ *    - LORA_RST_PIN : PA1 (Pin Reset NRST Activo en LOW)
+ *    - Baudrate     : 115200 baudios (Band 6 / AU915)
+ * 
+ * 3. LEDS DE ESTADO Y MONITOREO:
+ *    - LED_LORA_PIN  : PB0  (LED 3 - Estado de Red LoRaWAN)
+ *    - LED_ERROR_PIN : PB1  (LED 2 - Fallo / Error)
+ *    - LED_RESERVE   : PB2  (LED 4 - Reserva)
+ *    - LED_MCU_PIN   : PC13 (LED Onboard STM32)
+ * 
+ * ============================================================================
+ */
 
-// =========================================================================
-// CONFIGURACIÓN DE PINES Y PERIFÉRICOS SEGÚN LA PLACA SELECCIONADA
-// =========================================================================
+// ----------------------------------------------------------------------------
+// 1. ASIGNACIÓN OFICIAL DE PINES - PUERTO ÓPTICO (VERIFICADO)
+// ----------------------------------------------------------------------------
+#define IR_TX_PIN   PA9  // Puerto Óptico TX
+#define IR_RX_PIN   PA10 // Puerto Óptico RX
 
-#undef BOARD_NAME
-#if SELECTED_BOARD_MODEL == BOARD_HELTEC_ESP32_S3
+/*
+ * PINES AUDITADOS Y DESCARTADOS PARA PUERTO ÓPTICO:
+ * // #define IR_TX_PIN_CANDIDATE_1 PB10 // Descartado
+ * // #define IR_RX_PIN_CANDIDATE_1 PB11 // Descartado
+ * // #define IR_TX_PIN_CANDIDATE_2 PB6  // Asignado a Módem LoRaWAN
+ * // #define IR_RX_PIN_CANDIDATE_2 PB7  // Asignado a Módem LoRaWAN
+ * // #define IR_TX_PIN_CANDIDATE_3 PA2  // Descartado
+ * // #define IR_RX_PIN_CANDIDATE_3 PA3  // Descartado
+ * // #define IR_TX_PIN_CANDIDATE_4 PB12 // Descartado
+ * // #define IR_RX_PIN_CANDIDATE_4 PB13 // Descartado
+ */
 
-  #define BOARD_NAME "Heltec ESP32-S3 (WiFi LoRa 32 V3)"
-  
-  // Pines de Pantalla OLED SSD1306 (0.96 pulg I2C) en Heltec V3
-  #define HAS_OLED_DISPLAY 1
-  #define OLED_SDA_PIN   17  // I2C SDA para OLED
-  #define OLED_SCL_PIN   18  // I2C SCL para OLED
-  #define OLED_RST_PIN   21  // Reset del display
-  #define OLED_VEXT_PIN  36  // Control de alimentación Vext del display (LOW activa)
+// ----------------------------------------------------------------------------
+// 2. ASIGNACIÓN OFICIAL DE PINES - MÓDULO LORAWAN RAK3172 (VERIFICADO)
+// ----------------------------------------------------------------------------
+#define LORA_TX_PIN   PB6  // Módem LoRaWAN TX (USART1 Remapped)
+#define LORA_RX_PIN   PB7  // Módem LoRaWAN RX (USART1 Remapped)
+#define LORA_RST_PIN  PA1  // Módem LoRaWAN Reset NRST
 
-  // Puerto serie Infrarrojo en Heltec V3 (Pin impreso 4=RX, Pin impreso 5=TX)
-  #define IR_RX_PIN 4
-  #define IR_TX_PIN 5
+/*
+ * PINES AUDITADOS Y DESCARTADOS PARA MÓDULO LORAWAN:
+ * // #define LORA_TX_CANDIDATE_1 PA2  // USART2 TX (Descartado)
+ * // #define LORA_RX_CANDIDATE_1 PA3  // USART2 RX (Descartado)
+ * // #define LORA_TX_CANDIDATE_2 PB10 // USART3 TX (Descartado)
+ * // #define LORA_RX_CANDIDATE_2 PB11 // USART3 RX (Descartado)
+ * // #define LORA_SPI_NSS_1      PA4  // SPI1 NSS (Descartado)
+ * // #define LORA_SPI_SCK_1      PA5  // SPI1 SCK (Descartado)
+ * // #define LORA_SPI_MISO_1     PA6  // SPI1 MISO (Descartado)
+ * // #define LORA_SPI_MOSI_1     PA7  // SPI1 MOSI (Descartado)
+ * // #define LORA_SPI_NSS_2      PB12 // SPI2 NSS (Descartado)
+ * // #define LORA_SPI_SCK_2      PB13 // SPI2 SCK (Descartado)
+ * // #define LORA_SPI_MISO_2     PB14 // SPI2 MISO (Descartado)
+ * // #define LORA_SPI_MOSI_2     PB15 // SPI2 MOSI (Descartado)
+ */
 
-  // Pines de Radio LoRaWAN SX1262 nativa en Heltec V3
-  #define LORA_NSS_PIN   8
-  #define LORA_DIO1_PIN  14
-  #define LORA_RST_PIN   12
-  #define LORA_BUSY_PIN  13
-
-  #ifndef TELEMETRY_INTERVAL_MS
-    #define TELEMETRY_INTERVAL_MS (15 * 1000) // 15 segundos para pruebas
-  #endif
-
-  #define SERIAL_DEBUG_BAUD 115200
-
-#elif SELECTED_BOARD_MODEL == BOARD_STM32F103C8T6
-
-  #define BOARD_NAME "STM32F103C8T6 (Blue Pill)"
-
-  // =========================================================================
-  // CONFIGURACIÓN DE PINES DEL MÓDULO ÓPTICO / INFRARROJO (IEC 62056-21)
-  // =========================================================================
-  // Par ACTIVO seleccionado y verificado por barrido físico: PA9 (TX) / PA10 (RX)
-  #define IR_TX_PIN PA9   // USART1_TX (Salida TX hacia LED IR del puerto óptico)
-  #define IR_RX_PIN PA10  // USART1_RX (Entrada RX desde fototransistor del puerto óptico)
-
-  /*
-   * PINES ALTERNATIVOS AUDITADOS Y DISPONIBLES EN HARDWARE (Comentados para referencia):
-   * 
-   * // Opción 1 (USART1 nativo): PA9 (TX) / PA10 (RX) -> GANADOR VERIFICADO
-   * // #define IR_TX_PIN PA9
-   * // #define IR_RX_PIN PA10
-   * 
-   * // Opción 2 (USART3 nativo): PB10 (TX) / PB11 (RX)
-   * // #define IR_TX_PIN PB10
-   * // #define IR_RX_PIN PB11
-   * 
-   * // Opción 3 (USART2 nativo): PA2 (TX) / PA3 (RX)
-   * // #define IR_TX_PIN PA2
-   * // #define IR_RX_PIN PA3
-   * 
-   * // Opción 4 (Bit-banging software): PB6 (TX) / PB7 (RX)
-   * // #define IR_TX_PIN PB6
-   * // #define IR_RX_PIN PB7
-   * 
-   * // Opción 5 (Bit-banging software): PB12 (TX) / PB13 (RX)
-   * // #define IR_TX_PIN PB12
-   * // #define IR_RX_PIN PB13
-   */
-
-  // Pines de Radio LoRaWAN SPI (Módulo externo RFM95W / SX1276 / SX1262)
-  #define LORA_NSS_PIN   PA4
-  #define LORA_SCK_PIN   PA5
-  #define LORA_MISO_PIN  PA6
-  #define LORA_MOSI_PIN  PA7
-  #define LORA_RST_PIN   PB1
-  #define LORA_DIO0_PIN  PB0
-
-  // Pines de LEDs de Estado de la Placa Original (ME_LoRa_v3.6)
-  // D6 (Verde superior): Indicador 220V AC directo por hardware
-  #define LED_FAIL_PIN    PB1  // LED 2 (D5 Rojo superior): Fail / Alerta (Active LOW)
-  #define LED_TX_LORA_PIN PB0  // LED 3 (D3 Rojo medio): Actividad IR / LoRaWAN (Active LOW)
-  #define LED_UNUSED_PIN  PB2  // LED 4 (D4 Rojo inferior): Reserva (Active LOW)
-
-  // Pin de detección de alimentación externa 220V (Fuente Hi-Link)
-  #define POWER_SENSE_PIN PA1   // Sensa presencia de energía de red externa
-
-  // Intervalo entre lecturas de telemetría (en milisegundos)
-  #ifndef TELEMETRY_INTERVAL_MS
-    #define TELEMETRY_INTERVAL_MS (15 * 1000) // 15 segundos para pruebas
-  #endif
-
-  #define SERIAL_DEBUG_BAUD 115200
-
-#else
-  #error "Modelo de placa no soportado o no seleccionado en BoardConfig.h"
-#endif
+// ----------------------------------------------------------------------------
+// 3. ASIGNACIÓN DE PINES - LEDS E INDICADORES DE ESTADO (VERIFICADO)
+// ----------------------------------------------------------------------------
+#define LED_LORA_PIN   PB0  // LED 3 - Estado LoRa
+#define LED_ERROR_PIN  PB1  // LED 2 - Error
+#define LED_RESERVE    PB2  // LED 4 - Reserva
+#define LED_MCU_PIN    PC13 // LED Onboard Status
 
 #endif // BOARD_CONFIG_H

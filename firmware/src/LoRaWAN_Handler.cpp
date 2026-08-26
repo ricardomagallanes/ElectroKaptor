@@ -1,6 +1,6 @@
 #include "LoRaWAN_Handler.h"
 
-#if SELECTED_BOARD_MODEL == BOARD_HELTEC_ESP32_S3
+#if defined(ARDUINO_ARCH_ESP32)
 
 #include <WiFi.h>
 
@@ -133,11 +133,9 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
 
   Serial.printf("[LoRaWAN] Transmitiendo %d bytes por Heltec LoRaWAN stack (Puerto %d)...\n", length, port);
   
-  // SendFrame() devuelve false (0) si el paquete fue enviado al radio correctamente, o true (1) si ocurrió error.
   bool err = SendFrame();
   if (!err) {
     Serial.println("[LoRaWAN] Paquete enviado al transceiver LoRa. Procesando ventanas de recepción RX1/RX2...");
-    // Mantener activo el procesador de IRQ del radio durante 6 segundos para ventanas de recepción (RX1/RX2)
     process(6000);
     return true;
   } else {
@@ -146,53 +144,103 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
   }
 }
 
-#elif SELECTED_BOARD_MODEL == BOARD_STM32F103C8T6
+#else // ARDUINO_ARCH_STM32 (Placa Principal STM32F103C8T6 con módem RAK3172)
 
-#if defined(ARDUINO_ARCH_STM32)
-// En STM32F103C8T6, USART2 (PA3 RX / PA2 TX) está mapeado a Serial2 por el core ststm32
-#define rakSerial Serial2
-#endif
+static void delayUsLocal(uint32_t us) {
+  uint32_t cycles = (SystemCoreClock / 1000000) * us;
+  uint32_t start = DWT->CYCCNT;
+  while ((DWT->CYCCNT - start) < cycles);
+}
+
+static void txByteLocal(uint8_t pin, uint8_t val, uint32_t bitUs) {
+  digitalWrite(pin, LOW);
+  delayUsLocal(bitUs);
+
+  for (int i = 0; i < 8; i++) {
+    digitalWrite(pin, (val >> i) & 1 ? HIGH : LOW);
+    delayUsLocal(bitUs);
+  }
+
+  digitalWrite(pin, HIGH);
+  delayUsLocal(bitUs * 2);
+}
+
+static void sendTxStrLocal(uint8_t pin, const char* str, uint32_t baud = 115200) {
+  uint32_t bitUs = 1000000 / baud;
+  pinMode(pin, OUTPUT);
+  digitalWrite(pin, HIGH);
+  delayUsLocal(bitUs * 2);
+
+  while (*str) {
+    txByteLocal(pin, (uint8_t)*str++, bitUs);
+  }
+}
+
+static bool readRxStrLocal(uint8_t pin, uint32_t baud, char* outBuf, uint16_t maxLen, uint32_t timeoutMs = 2000) {
+  uint32_t bitUs = 1000000 / baud;
+  pinMode(pin, INPUT_PULLUP);
+
+  unsigned long start = millis();
+  uint16_t idx = 0;
+  memset(outBuf, 0, maxLen);
+
+  while (millis() - start < timeoutMs) {
+    if (digitalRead(pin) == LOW) {
+      delayUsLocal(bitUs / 2);
+      if (digitalRead(pin) != LOW) continue;
+
+      uint8_t val = 0;
+      for (int i = 0; i < 8; i++) {
+        delayUsLocal(bitUs);
+        if (digitalRead(pin) == HIGH) val |= (1 << i);
+      }
+      delayUsLocal(bitUs * 2);
+
+      if (val >= 32 && val <= 126 && idx < maxLen - 1) {
+        outBuf[idx++] = (char)val;
+      }
+      start = millis();
+    }
+  }
+
+  return (idx > 0);
+}
+
+static bool sendAtCmdLocal(const char* cmd, const char* expectedStr, uint32_t timeoutMs = 2000) {
+  sendTxStrLocal(LORA_TX_PIN, cmd, 115200);
+  sendTxStrLocal(LORA_TX_PIN, "\r\n", 115200);
+
+  char rxBuf[128];
+  if (readRxStrLocal(LORA_RX_PIN, 115200, rxBuf, sizeof(rxBuf), timeoutMs)) {
+    if (strstr(rxBuf, expectedStr) != NULL) {
+      return true;
+    }
+  }
+  return false;
+}
 
 LoRaWANHandler::LoRaWANHandler() : _joined(false) {}
 
 bool LoRaWANHandler::begin() {
-  Serial.println("[LoRaWAN] Inicializando módem RAK3172 sobre USART2 (Serial2)...");
-#if defined(ARDUINO_ARCH_STM32)
-  pinMode(PA3, INPUT_PULLUP);
-  rakSerial.begin(9600);
-  delay(100);
-  while (rakSerial.available()) rakSerial.read();
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 
-  rakSerial.print("AT\r\n");
-  delay(300);
+  // Pulso Reset del módem RAK3172 en LORA_RST_PIN (PA1)
+  pinMode(LORA_RST_PIN, OUTPUT);
+  digitalWrite(LORA_RST_PIN, LOW);  delay(30);
+  digitalWrite(LORA_RST_PIN, HIGH); delay(200);
 
-  String resp = "";
-  uint32_t start = millis();
-  while (millis() - start < 1000) {
-    if (rakSerial.available()) {
-      resp += (char)rakSerial.read();
-    }
-  }
+  // Sincronización de baudios
+  sendTxStrLocal(LORA_TX_PIN, "\r\n", 115200); delay(100);
 
-  if (resp.indexOf("OK") != -1) {
-    Serial.println("[LoRaWAN] Módem RAK3172 responde AT OK.");
+  if (sendAtCmdLocal("AT", "OK", 1000)) {
     return true;
   }
-#endif
-  Serial.println("[LoRaWAN] RAK3172 inicializado (esperando transmisión).");
-  return true;
+  return false;
 }
 
 void LoRaWANHandler::process(uint32_t ms) {
-  uint32_t start = millis();
-  while (millis() - start < ms) {
-#if defined(ARDUINO_ARCH_STM32)
-    while (rakSerial.available()) {
-      Serial.write(rakSerial.read());
-    }
-#endif
-    delay(10);
-  }
+  delay(ms);
 }
 
 bool LoRaWANHandler::isJoined() {
@@ -200,21 +248,56 @@ bool LoRaWANHandler::isJoined() {
 }
 
 bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
-  Serial.println("[LoRaWAN] Enviando comando Join OTAA a RAK3172...");
-#if defined(ARDUINO_ARCH_STM32)
-  rakSerial.print("AT+NWM=1\r\n");
-  process(200);
-  rakSerial.print("AT+BAND=6\r\n");
-  process(200);
-  rakSerial.print("AT+JOIN=1:0:10:8\r\n");
-#endif
+  uint8_t devEuiBytes[] = LORAWAN_DEV_EUI;
+  uint8_t appEuiBytes[] = LORAWAN_APP_EUI;
+  uint8_t appKeyBytes[] = LORAWAN_APP_KEY;
 
-  uint32_t start = millis();
-  while (millis() - start < timeoutMs) {
-    process(100);
+  char devEuiStr[17], appEuiStr[17], appKeyStr[33], cmdBuf[128];
+  const char hexChars[] = "0123456789ABCDEF";
+
+  for (uint8_t i = 0; i < 8; i++) {
+    devEuiStr[i * 2]     = hexChars[(devEuiBytes[i] >> 4) & 0x0F];
+    devEuiStr[i * 2 + 1] = hexChars[devEuiBytes[i] & 0x0F];
+    appEuiStr[i * 2]     = hexChars[(appEuiBytes[i] >> 4) & 0x0F];
+    appEuiStr[i * 2 + 1] = hexChars[appEuiBytes[i] & 0x0F];
   }
-  _joined = true;
-  return true;
+  devEuiStr[16] = '\0';
+  appEuiStr[16] = '\0';
+
+  for (uint8_t i = 0; i < 16; i++) {
+    appKeyStr[i * 2]     = hexChars[(appKeyBytes[i] >> 4) & 0x0F];
+    appKeyStr[i * 2 + 1] = hexChars[appKeyBytes[i] & 0x0F];
+  }
+  appKeyStr[32] = '\0';
+
+  sendAtCmdLocal("AT+NWM=1", "OK", 1000);
+  sendAtCmdLocal("AT+BAND=6", "OK", 1000); // AU915
+
+  snprintf(cmdBuf, sizeof(cmdBuf), "AT+DEVEUI=%s", devEuiStr);
+  sendAtCmdLocal(cmdBuf, "OK", 1000);
+
+  snprintf(cmdBuf, sizeof(cmdBuf), "AT+APPEUI=%s", appEuiStr);
+  sendAtCmdLocal(cmdBuf, "OK", 1000);
+
+  snprintf(cmdBuf, sizeof(cmdBuf), "AT+APPKEY=%s", appKeyStr);
+  sendAtCmdLocal(cmdBuf, "OK", 1000);
+
+  // Transmitir Join OTAA
+  sendAtCmdLocal("AT+JOIN=1:0:10:8", "OK", 2000);
+
+  char joinRx[128];
+  unsigned long start = millis();
+  while (millis() - start < timeoutMs) {
+    if (readRxStrLocal(LORA_RX_PIN, 115200, joinRx, sizeof(joinRx), 2000)) {
+      if (strstr(joinRx, "+EVT:JOINED") != NULL || strstr(joinRx, "JOINED") != NULL || strstr(joinRx, "OK") != NULL) {
+        _joined = true;
+        return true;
+      }
+    }
+  }
+
+  _joined = false;
+  return false;
 }
 
 bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t port) {
@@ -227,12 +310,9 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
     hexBuf[i * 2 + 1] = hexChars[payload[i] & 0x0F];
   }
 
-  Serial.printf("[LoRaWAN] RAK3172 AT+SEND=%d:%s\n", port, hexBuf);
-#if defined(ARDUINO_ARCH_STM32)
-  rakSerial.printf("AT+SEND=%d:%s\r\n", port, hexBuf);
-#endif
-  process(3000);
-  return true;
+  char cmdBuf[160];
+  snprintf(cmdBuf, sizeof(cmdBuf), "AT+SEND=%d:%s", port, hexBuf);
+  return sendAtCmdLocal(cmdBuf, "OK", 5000);
 }
 
 #endif
