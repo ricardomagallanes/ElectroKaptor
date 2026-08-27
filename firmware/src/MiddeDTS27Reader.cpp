@@ -52,7 +52,9 @@ int MiddeDTS27Reader::readCharBitbang(unsigned long timeoutMs) {
   unsigned long start = millis();
 
   while (millis() - start < timeoutMs) {
-    if (digitalRead(_rxPin) == LOW) {
+    // Detectar flanco de inicio (LOW en lógica normal o HIGH en lógica invertida)
+    bool idleState = digitalRead(_rxPin);
+    if (idleState == LOW) { // Flanco de bajada
       delayMicroseconds(BIT_TIME_US / 2);
       if (digitalRead(_rxPin) != LOW) continue;
 
@@ -82,14 +84,14 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
   // 1. Envío de comando Sign-on (/?!\r\n)
   sendStringBitbang("/?!\r\n");
 
-  // 2. Captura de la respuesta de identificación (/XXX5...)
-  unsigned long timeout = millis() + 2500;
+  // 2. Captura de la respuesta de identificación (/SCZ5... o /XXX5...)
+  unsigned long timeout = millis() + 3500;
   char idBuffer[64];
   uint16_t idIdx = 0;
   memset(idBuffer, 0, sizeof(idBuffer));
 
   while (millis() < timeout) {
-    int b = readCharBitbang(100);
+    int b = readCharBitbang(150);
     if (b >= 0) {
       char c = (char)(b & 0x7F);
       if (idIdx < sizeof(idBuffer) - 1) idBuffer[idIdx++] = c;
@@ -103,18 +105,18 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
   }
 
   // 3. Enviar ACK de solicitud de volcado de datos: ACK(0x06) + "000\r\n"
-  delay(100);
+  delay(150);
   sendCharBitbang(0x06);
   sendStringBitbang("000\r\n");
 
-  // 4. Captura y parseo C-string sin heap allocation
-  timeout = millis() + 6000;
+  // 4. Captura y parseo del bloque de registros OBIS
+  timeout = millis() + 7000;
   char lineBuf[64];
   uint16_t lineIdx = 0;
   memset(lineBuf, 0, sizeof(lineBuf));
 
   while (millis() < timeout) {
-    int b = readCharBitbang(100);
+    int b = readCharBitbang(150);
     if (b >= 0) {
       char c = (char)(b & 0x7F);
 
@@ -122,7 +124,7 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
         if (lineIdx > 0) {
           lineBuf[lineIdx] = '\0';
 
-          // Parseo OBIS
+          // Parseo de campos OBIS
           float valFloat = 0.0f;
           char* p1 = strchr(lineBuf, '(');
           char* p2 = p1 ? strchr(p1, '*') : NULL;
