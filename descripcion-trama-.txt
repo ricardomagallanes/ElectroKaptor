@@ -1,0 +1,66 @@
+================================================================================
+ESTRUCTURA Y CONTENIDO DE LA TRAMA COMPLETA DEL MEDIDOR MIDDE DTS27
+================================================================================
+
+Cuando el microcontrolador interroga al medidor trifásico DTS27 por el puerto
+óptico (PA3 RX / PB10 TX), decodifica los registros OBIS estándar IEC 62056-21
+y empaqueta la información a nivel de bits mediante BitPacker en dos tramas
+independientes.
+
+--------------------------------------------------------------------------------
+1. TRAMA 1 (Mensaje 0: Telemetría Eléctrica Principal)
+--------------------------------------------------------------------------------
+- Tamaño: 15 bytes (119 bits útiles + 1 bit de alineación)
+- Puerto LoRaWAN: 10
+- Tipo de mensaje: Unconfirmed Uplink (AT+CFM=0)
+
+Desglose de Campos y Bits:
+--------------------------------------------------------------------------------
+Campo                         Bits             Rango / Resolución      Ejemplo
+--------------------------------------------------------------------------------
+Mensaje N°                    2 bits (0..1)    0 = Telemetría Principal 0
+Tipo de Medidor               2 bits (2..3)    2 = Trifásico (DTS27)    2
+Estado                        3 bits (4..6)    0 = Normal, 2 = Sin IR   0
+Nivel Batería                 6 bits (7..12)   0 a 63 %                 60 %
+Factor de Potencia (FP)       7 bits (13..19)  0.00 a 1.00 (x100)       98 (0.98)
+Voltaje Fase A (Va)           11 bits (20..30) 0 a 2047 V               220 V
+Voltaje Fase B (Vb)           11 bits (31..41) 0 a 2047 V               221 V
+Voltaje Fase C (Vc)           11 bits (42..52) 0 a 2047 V               219 V
+Corriente Fase A (Ia)         13 bits (53..65) 0.00 a 81.91 A (x100)    5.20 A
+Corriente Fase B (Ib)         13 bits (66..78) 0.00 a 81.91 A (x100)    4.80 A
+Corriente Fase C (Ic)         13 bits (79..91) 0.00 a 81.91 A (x100)    5.10 A
+Energía Activa Importada      27 bits (92..118)0 a 134,217,727 kWh(x100)1254.80 kWh
+--------------------------------------------------------------------------------
+
+Ejemplo Hexadecimal Real (15 bytes):
+21 16 41 CE 00 00 00 00 00 00 00 00 00 00 4A
+
+Comando AT enviado al módem RAK3172:
+AT+SEND=10:211641CE000000000000000000004A
+
+
+--------------------------------------------------------------------------------
+2. TRAMA 2 (Mensaje 1: Demandas y Energías Secundarias)
+--------------------------------------------------------------------------------
+- Tamaño: 16 bytes (128 bits)
+- Puerto LoRaWAN: 10
+- Tipo de mensaje: Unconfirmed Uplink (AT+CFM=0)
+
+Desglose de Campos y Bits:
+--------------------------------------------------------------------------------
+Campo                         Bits             Rango / Resolución
+--------------------------------------------------------------------------------
+Mensaje N°                    2 bits (0..1)    1 = Energías Sec. y Demandas
+Energía Activa Exportada      27 bits (2..28)  0 a 134,217,727 kWh (x100)
+Energía Reactiva Importada    27 bits (29..55) 0 a 134,217,727 kVArh (x100)
+Energía Reactiva Exportada    27 bits (56..82) 0 a 134,217,727 kVArh (x100)
+Máxima Demanda Importada      20 bits (83..102)0.00 a 10485.75 kW (x100)
+Máxima Demanda Exportada      20 bits (103..122)0.00 a 10485.75 kW (x100)
+Padding / Flag                5 bits (123..127)0
+--------------------------------------------------------------------------------
+
+Ejemplo Hexadecimal (16 bytes):
+40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+Comando AT enviado al módem RAK3172:
+AT+SEND=10:40000000000000000000000000000000

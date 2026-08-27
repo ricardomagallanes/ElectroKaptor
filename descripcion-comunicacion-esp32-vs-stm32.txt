@@ -1,0 +1,48 @@
+================================================================================
+ANÁLISIS COMPARATIVO DE COMUNICACIÓN LORAWAN: ESP32 HELTEC V3 vs. STM32 + RAK3172
+================================================================================
+
+Este documento detalla la comparativa técnica entre la implementación previa en
+ESP32 (Heltec LoRa V3 con SX1262 integrado) y la arquitectura actual basada en
+el microcontrolador STM32F103C8T6 junto al módulo módem LoRaWAN RAK3172 (RUI3).
+
+--------------------------------------------------------------------------------
+1. TABLA COMPARATIVA DE PARÁMETROS
+--------------------------------------------------------------------------------
+Parámetro                  ESP32 Heltec V3 (LoRaWan_APP.h)    STM32F103 + RAK3172 (RUI3 AT)
+--------------------------------------------------------------------------------
+Pila LoRaWAN               Stack integrado en firmware MCU    Co-procesador autónomo RAK3172
+Control RF                 Directo por SPI (SX1262)           UART AT Commands (PB6 TX / PB7 RX)
+Región de Frecuencias      loraWanRegion = AU915              AT+BAND=6 (AU915)
+Canales TTN (FSB2)         userChannelsMask[0] = 0xFF00       AT+MASK=0002 (Sub-banda 2: Ch 8-15)
+Tipo de Transmisión        isTxConfirmed = false              AT+CFM=0 (Unconfirmed / Sin ACK)
+Adaptive Data Rate (ADR)   loraWanAdr = true                  AT+ADR=1
+Puerto de Aplicación       appPort = 10                       AT+SEND=10:<hex_payload>
+Activación de Red          LoRaWAN.join() (Máquina estados)   AT+JOIN=1:1:10:8 (AutoJoin ON)
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+2. PROCEDIMIENTO CORRECTO Y RECOMENDACIONES TÉCNICAS (MÓDEM RAK3172)
+--------------------------------------------------------------------------------
+
+1. Configuración de Credenciales Única en el Arranque:
+   - Los comandos de inicialización (AT+NWM=1, AT+NJM=1, AT+BAND=6, AT+MASK=0002,
+     AT+CFM=0, AT+ADR=1, AT+DEVEUI, AT+APPEUI, AT+APPKEY) se ejecutan UNA SOLA VEZ
+     durante el arranque (setup/begin).
+   - El módem RAK3172 almacena las claves en Flash y mantiene el estado.
+
+2. AutoJoin Permanente (AT+JOIN=1:1:10:8):
+   - Al configurar el segundo parámetro en 1 (AutoJoin ON), el módulo reintenta
+     automáticamente en segundo plano ante cualquier pérdida de sincronización
+     sin requerir que el microcontrolador vuelva a reiniciar el módem.
+
+3. Modo No Confirmado (AT+CFM=0):
+   - En telemetría periódica de medidores de energía, se recomienda siempre el
+     modo Unconfirmed. Esto previene que el equipo se bloquee o repita envíos
+     si el Gateway o el Servidor LNS no envían paquetes Downlink ACK.
+
+4. Intervalo entre Tramas Consecutivas:
+   - Debido a las ventanas de recepción estándar LoRaWAN (RX1 a 1s y RX2 a 2s),
+     tras enviar la Trama 1 se debe esperar entre 4 y 5 segundos antes de emitir
+     el comando AT+SEND de la Trama 2. Esto garantiza que el canal RF esté libre
+     y evita respuestas de tipo AT_BUSY_ERROR.
