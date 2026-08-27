@@ -136,13 +136,28 @@ void loop() {
 
     // 1. Lectura del Puerto Óptico (IEC 62056-21 / Medidor DTS27)
     MeterData meterData;
-    MiddeDTS27Reader reader(IR_RX_PIN, IR_TX_PIN);
+    bool readOk = false;
 
-    SerialDebug2.println("[LECTURA] Intentando lectura de medidor por puerto óptico...");
-    bool readOk = reader.readMeter(meterData, 4000);
+    // Pares de pines candidato a probar para el puerto óptico:
+    struct PinPair { uint8_t rx; uint8_t tx; const char* label; };
+    PinPair candidatePins[] = {
+      { IR_RX_PIN, IR_TX_PIN, "PA10(RX)/PA9(TX) - Config Principal" },
+      { PB11, PB10, "PB11(RX)/PB10(TX) - Opción USART3" },
+      { PA3,  PA2,  "PA3(RX)/PA2(TX)   - Opción USART2" }
+    };
+
+    for (int i = 0; i < 3; i++) {
+      SerialDebug2.printf("[LECTURA] Probando puerto óptico en %s...\n", candidatePins[i].label);
+      MiddeDTS27Reader reader(candidatePins[i].rx, candidatePins[i].tx);
+      readOk = reader.readMeter(meterData, 3000);
+      if (readOk) {
+        SerialDebug2.printf("[ÉXITO OPTICO] ¡Respuesta recibida en %s!\n", candidatePins[i].label);
+        break;
+      }
+    }
 
     if (!readOk) {
-      SerialDebug2.println("[ERROR LECTURA] No se recibió respuesta del medidor por la sonda óptica.");
+      SerialDebug2.println("[ERROR LECTURA] No se recibió respuesta del medidor por ninguna combinación de pines ópticos.");
       SerialDebug2.println("[ALERTA] Se cancela el envío LoRaWAN de este ciclo. Reintentando lectura en el próximo ciclo...");
       
       // Parpadeo de error (LED Rojo 2 - PB1)

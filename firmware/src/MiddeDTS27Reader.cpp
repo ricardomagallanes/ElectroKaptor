@@ -4,13 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define BIT_TIME_US 3333 // 300 baudios (1/300 = 3333 us por bit)
-
-static inline void delayUsFast(uint32_t us) {
-  for (volatile uint32_t i = 0; i < us * 9; i++) {
-    __NOP();
-  }
-}
+#define BIT_TIME_US 3333 // 300 baudios (1/300 = 3333.33 us por bit)
 
 MiddeDTS27Reader::MiddeDTS27Reader(uint8_t rxPin, uint8_t txPin) 
   : _rxPin(rxPin), _txPin(txPin) {}
@@ -30,22 +24,22 @@ void MiddeDTS27Reader::sendCharBitbang(char c) {
 
   // Start bit: LOW
   digitalWrite(_txPin, LOW);
-  delayUsFast(BIT_TIME_US);
+  delayMicroseconds(BIT_TIME_US);
 
   // 7 Data bits
   for (int i = 0; i < 7; i++) {
     bool bitVal = (val >> i) & 1;
     digitalWrite(_txPin, bitVal ? HIGH : LOW);
-    delayUsFast(BIT_TIME_US);
+    delayMicroseconds(BIT_TIME_US);
   }
 
-  // Parity bit (Par)
+  // Parity bit (Even Parity 7E1)
   digitalWrite(_txPin, parity ? HIGH : LOW);
-  delayUsFast(BIT_TIME_US);
+  delayMicroseconds(BIT_TIME_US);
 
   // Stop bit: HIGH
   digitalWrite(_txPin, HIGH);
-  delayUsFast(BIT_TIME_US * 2);
+  delayMicroseconds(BIT_TIME_US * 2);
 }
 
 void MiddeDTS27Reader::sendStringBitbang(const char* str) {
@@ -59,17 +53,17 @@ int MiddeDTS27Reader::readCharBitbang(unsigned long timeoutMs) {
 
   while (millis() - start < timeoutMs) {
     if (digitalRead(_rxPin) == LOW) {
-      delayUsFast(BIT_TIME_US / 2);
+      delayMicroseconds(BIT_TIME_US / 2);
       if (digitalRead(_rxPin) != LOW) continue;
 
       uint8_t val = 0;
       for (int i = 0; i < 7; i++) {
-        delayUsFast(BIT_TIME_US);
+        delayMicroseconds(BIT_TIME_US);
         if (digitalRead(_rxPin) == HIGH) {
           val |= (1 << i);
         }
       }
-      delayUsFast(BIT_TIME_US * 3); // Saltear paridad y stop bit
+      delayMicroseconds(BIT_TIME_US * 3); // Saltear paridad y stop bit
       return val & 0x7F;
     }
   }
