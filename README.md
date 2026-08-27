@@ -15,13 +15,15 @@
 - **Empaquetamiento Eficiente de Telemetría (BitPacker):**
   - **Trama 1 (Mensaje 0 - 15 bytes):** Voltajes de Fase (A, B, C), Corrientes (A, B), Factor de Potencia (Cos $\phi$), Frecuencia de Red y Energía Activa Importada Total.
   - **Trama 2 (Mensaje 1 - 16 bytes):** Demandas Máximas (Activa/Reactiva), Factor de Potencia Total, Energías Reactivas Importada/Exportada y Energía Activa Exportada.
-- **Conectividad LoRaWAN (OTAA):**
-  - Banda Regional **AU915** Sub-banda 2 (**FSB2**, Canales 8 al 15) hacia **The Things Network (TTN)**.
-  - Modo No Confirmado (**Unconfirmed Uplink** / Puerto 10) con gestión autónoma de AutoJoin.
-- **Señalización Visual y Diagnóstico en LEDs:**
-  - **LED 2 (`PB1`):** Parpadea durante la lectura óptica, emite una ráfaga rápida de 8 pulsos tras decodificar con éxito, permanece encendido fijo durante la transmisión por radio y se apaga al finalizar el envío OK.
-  - **LED 3 (`PB0`):** Indicador de error / fallo (parpadea ante fallos de lectura, join o envío).
-  - **LED MCU (`PC13`):** Heartbeat del firmware.
+- **Conectividad LoRaWAN (OTAA) de Alta Resiliencia:**
+  - Banda Regional **AU915** Sub-banda 2 (**FSB2**, Canales 8 al 15) hacia **The Things Network (TTN)** configurado en **Data Rate 3 (DR3 - SF7)** para soporte de tramas extensas sin colisión con el Dwell Time.
+  - Estrategia de **Confirmación de Ciclo con Gateway ACK**: Trama 1 en modo no confirmado y Trama 2 en modo confirmado (`AT+CFM=1`), permitiendo detectar de forma infalible la disponibilidad del Gateway y re-sincronizar el Join OTAA ante caídas de red.
+  - Sincronización estricta por eventos de radio (`+EVT:TX_DONE` y `+EVT:SEND_CONFIRMED_OK`), previniendo errores por colisión de comandos (`AT_BUSY_ERROR`).
+- **Señalización Visual y Diagnóstico en LEDs (Active-LOW):**
+  - **LED 2 (`PB1`):** Parpadea durante la lectura óptica, emite una ráfaga rápida (8 pulsos a 40 ms) tras decodificar con éxito, permanece encendido fijo durante la transmisión por radio y se **apaga inmediatamente** al finalizar el envío con confirmación del Gateway.
+  - **LED 3 (`PB0`):** Indicador de error / fallo (parpadea ante fallos de lectura óptica, pérdida de enlace o falta de ACK del Gateway).
+  - **LED 4 (`PB2`):** Pin de reserva (apagado).
+  - **LED MCU (`PC13`):** Heartbeat del microcontrolador STM32.
 - **Control de Relays:** Control por pulsos en pines `PA8` (Relay Desconexión / Corte Remoto) y `PA9` (Relay Reconexión Remota).
 - **Driver de Depuración Serial de Cero Overhead (`DebugSerial`):** Acceso directo por registros en `USART2` (`PA2` TX) a 115200 baudios sin uso de buffers dinámicos en RAM.
 

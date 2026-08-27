@@ -156,15 +156,20 @@ sequenceDiagram
     
     alt Módem Conectado a TTN
         MCU->>LED: LED 2 ENCENDIDO FIJO (Envío Activo)
-        MCU->>RAK: AT+SEND=10:<Payload_Trama1_Hex>
+        MCU->>RAK: AT+SEND=10:<Payload_Trama1_Hex> (CFM=0)
         RAK->>TTN: Transmisión RF LoRaWAN (AU915 FSB2)
-        RAK-->>MCU: OK / +EVT:TX_DONE
-        Note over MCU: Pausa 3s (Ventanas RX1/RX2)
-        MCU->>RAK: AT+SEND=10:<Payload_Trama2_Hex>
-        RAK->>TTN: Transmisión RF LoRaWAN (AU915 FSB2)
-        RAK-->>MCU: OK / +EVT:TX_DONE
-        MCU->>LED: LED 2 SE APAGA (Envío Concluido)
-    else Módem Desconectado
+        RAK-->>MCU: OK / +EVT:TX_DONE (Radio Libre)
+        Note over MCU: Pausa 1.5s (Inter-trama)
+        MCU->>RAK: AT+SEND=10:<Payload_Trama2_Hex> (CFM=1)
+        RAK->>TTN: Transmisión RF LoRaWAN (Exige ACK Gateway)
+        alt Gateway Responde ACK (+EVT:SEND_CONFIRMED_OK)
+            RAK-->>MCU: +EVT:SEND_CONFIRMED_OK
+            MCU->>LED: LED 2 SE APAGA INMEDIATAMENTE / Todos los LEDs Apagados
+        else Sin ACK (+EVT:SEND_CONFIRMED_FAILED / Timeout)
+            RAK-->>MCU: +EVT:SEND_CONFIRMED_FAILED
+            MCU->>LED: LED 2 APAGA / LED 3 PARPADEA (Error Enlace)
+        end
+    else Módem Desconectado / Sin Join
         MCU->>LED: LED 2 APAGA / LED 3 PARPADEA (Error Red)
         MCU->>RAK: Reintento AT+JOIN
     end
@@ -231,10 +236,15 @@ Para maximizar la eficiencia del enlace LoRaWAN en la sub-banda AU915 FSB2 y evi
 ## 6. 📡 GESTIÓN DEL ENLACE LORAWAN Y MÓDEM RAK3172
 
 * **Puerto LoRaWAN:** Puerto de Aplicación `10`.
-* **Modo de Confirmación:** No Confirmado (`AT+CFM=0`) para optimizar el canal.
-* **Control de Fallos Consecutivos:**
-  * El manejador cuenta las transmisiones consecutivas fallidas (`_failCount`).
-  * Si ocurren $\ge 2$ fallos sucesivos (ej. desconexión o reboot del Gateway), el sistema invalida el flag `_joined = false`, parpadea el **LED 3 de error** y dispara automáticamente una re-sincronización `AT+JOIN=1:1:10:8` en segundo plano.
+* **Data Rate:** DR3 (SF7 / 125 kHz) para compatibilidad con payloads de hasta 242 bytes y evitar el límite de 11 bytes de Dwell Time en AU915.
+* **Estrategia Híbrida de Confirmación (Ciclo-ACK):**
+  * **Trama 1 (Mensaje 0):** Modo No Confirmado (`AT+CFM=0`), emisión ultrarrápida sin requerir downlink del Gateway.
+  * **Trama 2 (Mensaje 1):** Modo Confirmado (`AT+CFM=1`), exigiendo acuse de recibo (**ACK**) del Gateway para validar 100% el enlace de radio del ciclo de telemetría sin sobrecargar el duty cycle del Gateway.
+* **Sincronización por Evento de Radio (`+EVT:TX_DONE`):**
+  * El manejador espera activamente el evento de finalización real del transceptor de radio antes de liberar la ejecución, eliminando totalmente los errores por colisión de comandos (`AT_BUSY_ERROR`).
+* **Control de Fallos Consecutivos y Auto-Reconexión:**
+  * El manejador contabiliza las transmisiones consecutivas fallidas (`_failCount`).
+  * Si ocurren $\ge 2$ fallos sucesivos (ej. Gateway apagado o fuera de rango), el sistema invalida el flag `_joined = false`, apaga el LED 2, hace parpadear el **LED 3 de error** (4 destellos a 100ms) y dispara automáticamente una re-sincronización `AT+JOIN=1:1:10:8` en segundo plano.
 
 ---
 
