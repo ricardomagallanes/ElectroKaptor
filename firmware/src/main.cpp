@@ -200,7 +200,7 @@ void loop() {
         SerialDebug2.println("[ERROR] Falló el envío de Trama 1.");
       }
 
-      delay(3000); // Pausa entre transmisiones
+      delay(5000); // Pausa entre transmisiones para respetar ventanas RX1/RX2 de TTN
 
       SerialDebug2.println("[LORAWAN] Transmitiendo Trama 2 (Mensaje 1)...");
       setLed(LED_LORA_PIN, true);
