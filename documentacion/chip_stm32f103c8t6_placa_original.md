@@ -63,12 +63,37 @@ Este documento contiene la radiografía técnica completa y el relevamiento de h
    - **Header J13 (4 pines a la izquierda del RAK3172):** Conector directo a la interfaz de depuración/programación SWD propia del chip STM32WLE5CC interno del RAK3172.
    - **Pulsadores:** `SW3` (conectado a la línea de Reset `NRST` del RAK3172) y `SW2` (Reset/Configuración general).
 
-### 🔍 Detalle del Conexionado del RAK3172 con el STM32F103:
-- **Comunicación:** El RAK3172 opera como un módem esclavo mediante comandos AT a 9600 u 115200 baudios.
-- **Pines del RAK3172 involucrados:**
-  - Pin 5 (`UART2_TX` de RAK3172) ---> pasa por resistencia `R20` ---> conecta al pin `RX` de la UART del STM32F103 (`PA10` en USART1 o `PA3` en USART2).
-  - Pin 6 (`UART2_RX` de RAK3172) ---> pasa por resistencia `R21` ---> conecta al pin `TX` de la UART del STM32F103 (`PA9` en USART1 o `PA2` en USART2).
-  - Pin 7 (`NRST` del RAK3172) ---> conectado al pulsador `SW3` y a un GPIO de control del STM32F103 para reinicio por software.
+### 🔍 Detalle del Conexionado Físico y Hardware Verificado (Ensayo Exitoso):
+
+A partir del ensayo de comunicación serie validado en placa, la distribución oficial y probada de conexiones entre el módem LoRaWAN **RAK3172** y el MCU **STM32F103C8T6** es la siguiente:
+
+| Pin RAK3172(H) | Señal RAK | Pin STM32F103 (LQFP48) | Señal STM32 | Periférico Hardware STM32 | Función / Descripción de la Línea |
+| :---: | :--- | :---: | :--- | :--- | :--- |
+| **Pin 1** | `UART2_RX` | **Pin 42** | `PB6` | `USART1_TX` (Remapped) | Transmisión serie Hardware del MCU (TX) hacia el RAK3172. |
+| **Pin 2** | `UART2_TX` | **Pin 43** | `PB7` | `USART1_RX` (Remapped) | Recepción serie Hardware del MCU (RX) desde el RAK3172. |
+| **Pin 22** | `NRST` | **Pin 45** | `PB8` | GPIO Output (Control NRST) | Control de Reset por Hardware (`NRST`) del RAK3172 (Pulso 0V ➔ 3.3V). |
+| **Pin 24** | `VDD` | **Pines 24 y 36** | `VDD_1` / `VDD_2` | 3.3V DC Power Rail | Alimentación principal de 3.3V DC del módem RAK3172. |
+| **Pin 21, 23** | `BOOT` / `GND` | **Pines 47, 8, 23, 35** | `VSS_3`, `VSSA`, `VSS_1`, `VSS_2` | Plano de Masa (GND) | Plano de masa / tierra común y modo Boot normal. |
+
+> [!IMPORTANT]
+> **CONFIGURACIÓN LORAWAN Y PERIFÉRICO SERIE:**
+> * **Periférico:** `USART1` remapeado vía AFIO (`__HAL_AFIO_REMAP_USART1_ENABLE()`).
+> * **Velocidad de Baudios:** **115200 8N1** (Baudrate por defecto del firmware RUI3 v4.0.6).
+> * **Banda Regional LoRaWAN:** **AU915** (`AT+BAND=6`).
+> * **Máscara de Canales:** **Sub-banda 2 / FSB2** (`AT+MASK=0002` / Canales 8 al 15 usados por TTN).
+> * **Respuesta de Confirmación de Join OTAA:** `+EVT:JOINED`.
+
+---
+
+## 4. 💡 Código de LEDs y Estados de Diagnóstico (Lógica Active-LOW)
+
+Los 4 LEDs del lado inferior de la PCB `ME_LoRa_v3.6` se manejan en lógica Active-LOW (`LOW` = Encendido / `HIGH` = Apagado):
+
+1. **LED Verde (D6):** Alimentación 220V AC (Físico por Hi-Link, no controlado por software).
+2. **LED Rojo 3 (`PB0` / D3 - Medio):** **LED LoRaWAN**. Parpadea durante la negociación de Join OTAA y se enciende fijo durante la transmisión por radio de la telemetría.
+3. **LED Rojo 2 (`PB1` / D5 - Superior):** **LED ERROR**. Parpadea ante fallos de lectura del medidor o error en la transmisión LoRaWAN.
+4. **LED Rojo 4 (`PB2` / D4 - Inferior):** **LED Reserva**.
+5. **LED Onboard (`PC13`):** **Heartbeat MCU**. Parpadea brevemente en cada ciclo de ejecución del bucle principal.
 
 ---
 

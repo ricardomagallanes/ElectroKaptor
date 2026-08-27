@@ -146,95 +146,47 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
 
 #else // ARDUINO_ARCH_STM32 (Placa Principal STM32F103C8T6 con módem RAK3172)
 
-static void delayUsLocal(uint32_t us) {
-  uint32_t cycles = (SystemCoreClock / 1000000) * us;
-  uint32_t start = DWT->CYCCNT;
-  while ((DWT->CYCCNT - start) < cycles);
-}
+static HardwareSerial SerialRAKLocal(PB7, PB6); // PB7 = RX, PB6 = TX
 
-static void txByteLocal(uint8_t pin, uint8_t val, uint32_t bitUs) {
-  digitalWrite(pin, LOW);
-  delayUsLocal(bitUs);
+static String sendAtCmdHardware(const char* cmd, uint32_t timeoutMs = 2000) {
+  while (SerialRAKLocal.available()) SerialRAKLocal.read(); // Clear RX buffer
+  SerialRAKLocal.print(cmd);
+  SerialRAKLocal.print("\r\n");
 
-  for (int i = 0; i < 8; i++) {
-    digitalWrite(pin, (val >> i) & 1 ? HIGH : LOW);
-    delayUsLocal(bitUs);
-  }
-
-  digitalWrite(pin, HIGH);
-  delayUsLocal(bitUs * 2);
-}
-
-static void sendTxStrLocal(uint8_t pin, const char* str, uint32_t baud = 115200) {
-  uint32_t bitUs = 1000000 / baud;
-  pinMode(pin, OUTPUT);
-  digitalWrite(pin, HIGH);
-  delayUsLocal(bitUs * 2);
-
-  while (*str) {
-    txByteLocal(pin, (uint8_t)*str++, bitUs);
-  }
-}
-
-static bool readRxStrLocal(uint8_t pin, uint32_t baud, char* outBuf, uint16_t maxLen, uint32_t timeoutMs = 2000) {
-  uint32_t bitUs = 1000000 / baud;
-  pinMode(pin, INPUT_PULLUP);
-
+  String resp = "";
   unsigned long start = millis();
-  uint16_t idx = 0;
-  memset(outBuf, 0, maxLen);
-
   while (millis() - start < timeoutMs) {
-    if (digitalRead(pin) == LOW) {
-      delayUsLocal(bitUs / 2);
-      if (digitalRead(pin) != LOW) continue;
-
-      uint8_t val = 0;
-      for (int i = 0; i < 8; i++) {
-        delayUsLocal(bitUs);
-        if (digitalRead(pin) == HIGH) val |= (1 << i);
-      }
-      delayUsLocal(bitUs * 2);
-
-      if (val >= 32 && val <= 126 && idx < maxLen - 1) {
-        outBuf[idx++] = (char)val;
-      }
-      start = millis();
+    while (SerialRAKLocal.available()) {
+      char c = (char)SerialRAKLocal.read();
+      resp += c;
+    }
+    if (resp.indexOf("OK") >= 0 || resp.indexOf("AT_ERROR") >= 0 || resp.indexOf("+EVT:") >= 0) {
+      break;
     }
   }
-
-  return (idx > 0);
-}
-
-static bool sendAtCmdLocal(const char* cmd, const char* expectedStr, uint32_t timeoutMs = 2000) {
-  sendTxStrLocal(LORA_TX_PIN, cmd, 115200);
-  sendTxStrLocal(LORA_TX_PIN, "\r\n", 115200);
-
-  char rxBuf[128];
-  if (readRxStrLocal(LORA_RX_PIN, 115200, rxBuf, sizeof(rxBuf), timeoutMs)) {
-    if (strstr(rxBuf, expectedStr) != NULL) {
-      return true;
-    }
-  }
-  return false;
+  return resp;
 }
 
 LoRaWANHandler::LoRaWANHandler() : _joined(false) {}
 
 bool LoRaWANHandler::begin() {
-  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+  // Habilitar remapeo hardware AFIO de USART1 a PB6(TX) y PB7(RX)
+  __HAL_RCC_AFIO_CLK_ENABLE();
+  __HAL_AFIO_REMAP_USART1_ENABLE();
 
-  // Pulso Reset del módem RAK3172 en LORA_RST_PIN (PA1)
+  // Reset del RAK3172 en LORA_RST_PIN (PB8 / Pin 45)
   pinMode(LORA_RST_PIN, OUTPUT);
-  digitalWrite(LORA_RST_PIN, LOW);  delay(30);
-  digitalWrite(LORA_RST_PIN, HIGH); delay(200);
+  digitalWrite(LORA_RST_PIN, LOW);  delay(300);
+  digitalWrite(LORA_RST_PIN, HIGH); delay(1500);
 
-  // Sincronización de baudios
-  sendTxStrLocal(LORA_TX_PIN, "\r\n", 115200); delay(100);
+  SerialRAKLocal.begin(LORA_BAUD);
+  delay(200);
 
-  if (sendAtCmdLocal("AT", "OK", 1000)) {
-    return true;
+  for (int retry = 0; retry < 5; retry++) {
+    if (sendAtCmdHardware("AT", 800).indexOf("OK") >= 0) {
+      return true;
+    }
+    delay(300);
   }
   return false;
 }
@@ -244,6 +196,10 @@ void LoRaWANHandler::process(uint32_t ms) {
 }
 
 bool LoRaWANHandler::isJoined() {
+  String resp = sendAtCmdHardware("AT+NJS=?", 800);
+  if (resp.indexOf("1") >= 0) {
+    _joined = true;
+  }
   return _joined;
 }
 
@@ -270,32 +226,38 @@ bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
   }
   appKeyStr[32] = '\0';
 
-  sendAtCmdLocal("AT+NWM=1", "OK", 1000);
-  sendAtCmdLocal("AT+BAND=6", "OK", 1000);   // AU915
-  sendAtCmdLocal("AT+MASK=0002", "OK", 1000); // FSB2 (Canales 8-15 usados por TTN)
-  sendAtCmdLocal("AT+CHE=2", "OK", 1000);     // FSB2 (Configuración alternativa RAK)
+  sendAtCmdHardware("AT+NWM=1", 1500); delay(300);
+  sendAtCmdHardware("AT+NJM=1", 1000); delay(300);
+  sendAtCmdHardware("AT+BAND=6", 1500); delay(1000); // AU915
+  sendAtCmdHardware("AT+MASK=0002", 1000);           // FSB2 (Canales 8-15 usador por TTN)
 
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+DEVEUI=%s", devEuiStr);
-  sendAtCmdLocal(cmdBuf, "OK", 1000);
+  sendAtCmdHardware(cmdBuf, 1000);
 
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+APPEUI=%s", appEuiStr);
-  sendAtCmdLocal(cmdBuf, "OK", 1000);
+  sendAtCmdHardware(cmdBuf, 1000);
 
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+APPKEY=%s", appKeyStr);
-  sendAtCmdLocal(cmdBuf, "OK", 1000);
+  sendAtCmdHardware(cmdBuf, 1000);
 
-  // Transmitir Join OTAA
-  sendAtCmdLocal("AT+JOIN=1:0:10:8", "OK", 2000);
+  // Detener Join previo y lanzar nuevo Join OTAA
+  sendAtCmdHardware("AT+JOIN=0", 500); delay(300);
+  sendAtCmdHardware("AT+JOIN=1:0:10:8", 2000);
 
-  char joinRx[128];
   unsigned long start = millis();
   while (millis() - start < timeoutMs) {
-    if (readRxStrLocal(LORA_RX_PIN, 115200, joinRx, sizeof(joinRx), 2000)) {
-      if (strstr(joinRx, "+EVT:JOINED") != NULL || strstr(joinRx, "JOINED") != NULL || strstr(joinRx, "OK") != NULL) {
+    while (SerialRAKLocal.available()) {
+      String line = SerialRAKLocal.readStringUntil('\n');
+      if (line.indexOf("+EVT:JOINED") >= 0 || line.indexOf("JOINED") >= 0) {
         _joined = true;
         return true;
       }
     }
+    if (isJoined()) {
+      _joined = true;
+      return true;
+    }
+    delay(500);
   }
 
   _joined = false;
@@ -314,7 +276,8 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
 
   char cmdBuf[160];
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+SEND=%d:%s", port, hexBuf);
-  return sendAtCmdLocal(cmdBuf, "OK", 5000);
+  String resp = sendAtCmdHardware(cmdBuf, 5000);
+  return (resp.indexOf("OK") >= 0);
 }
 
 #endif

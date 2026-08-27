@@ -1,12 +1,17 @@
 # Directorios temporales e imágenes
 imagenes/
+**/imagenes/
+documentacion/imagenes/
 .pio/
 .vscode/
 .idea/
+scratch/
 
 # Credenciales sensibles
 Credentials.h
 **/Credentials.h
+firmware/src/Credentials.h
+firmware/include/Credentials.h
 
 # Codigos anteriores (no subir al repositorio)
 codigos-anteiores/

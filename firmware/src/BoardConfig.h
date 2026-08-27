@@ -53,11 +53,14 @@
  */
 
 // ----------------------------------------------------------------------------
-// 2. ASIGNACIÓN OFICIAL DE PINES - MÓDULO LORAWAN RAK3172 (VERIFICADO)
+// 2. ASIGNACIÓN OFICIAL DE PINES - MÓDULO LORAWAN RAK3172 (VERIFICADO Y PROBADO)
 // ----------------------------------------------------------------------------
-#define LORA_TX_PIN   PB6  // Módem LoRaWAN TX (USART1 Remapped)
-#define LORA_RX_PIN   PB7  // Módem LoRaWAN RX (USART1 Remapped)
-#define LORA_RST_PIN  PA1  // Módem LoRaWAN Reset NRST
+#define LORA_TX_PIN   PB6     // Pin 42 del STM32 (USART1_TX Remapped -> RAK Pin 1 UART2_RX)
+#define LORA_RX_PIN   PB7     // Pin 43 del STM32 (USART1_RX Remapped -> RAK Pin 2 UART2_TX)
+#define LORA_RST_PIN  PB8     // Pin 45 del STM32 (Control NRST -> RAK Pin 22 NRST)
+#define LORA_BAUD     115200  // Baudrate oficial RUI3 v4.0.6
+#define LORA_BAND     6       // Banda AU915 para TTN / Argentina
+#define LORA_MASK     0x0002  // Sub-banda 2 / FSB2 (Canales 8-15)
 
 /*
  * PINES AUDITADOS Y DESCARTADOS PARA MÓDULO LORAWAN:

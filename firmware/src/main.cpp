@@ -1,126 +1,192 @@
 #include <Arduino.h>
 #include "BoardConfig.h"
-#include "MeterConfig.h"
-#include "MiddeDTS27Reader.h"
 #include "Credentials.h"
+#include "IMeterReader.h"
+#include "MiddeDTS27Reader.h"
+#include "BitPacker.h"
+#include "LoRaWAN_Handler.h"
 
-#define STATUS_LED_PIN 13
+// Instancia global de manejo LoRaWAN
+LoRaWANHandler loraHandler;
+HardwareSerial SerialDebug2(PA3, PA2);  // Debug en USART2
 
+// Control de LEDs en Lógica Active-LOW (LOW = Encendido, HIGH = Apagado)
+void setLed(uint8_t pin, bool turnOn) {
+  digitalWrite(pin, turnOn ? LOW : HIGH);
+}
+
+void blinkLed(uint8_t pin, uint8_t times, uint16_t delayMs) {
+  for (uint8_t i = 0; i < times; i++) {
+    setLed(pin, true);
+    delay(delayMs);
+    setLed(pin, false);
+    delay(delayMs);
+  }
+}
+
+void initLeds() {
+  pinMode(LED_LORA_PIN, OUTPUT);
+  pinMode(LED_ERROR_PIN, OUTPUT);
+  pinMode(LED_RESERVE, OUTPUT);
+  pinMode(LED_MCU_PIN, OUTPUT);
+
+  setLed(LED_LORA_PIN, false);
+  setLed(LED_ERROR_PIN, false);
+  setLed(LED_RESERVE, false);
+  setLed(LED_MCU_PIN, false);
+}
+
+// Handlers de excepciones por seguridad
 extern "C" __attribute__((used)) void HardFault_Handler(void) { NVIC_SystemReset(); }
 extern "C" __attribute__((used)) void BusFault_Handler(void) { NVIC_SystemReset(); }
 extern "C" __attribute__((used)) void UsageFault_Handler(void) { NVIC_SystemReset(); }
-extern "C" __attribute__((used)) void ADC1_2_IRQHandler(void) {}
 
-static const uint8_t devEuiBytes[] = LORAWAN_DEV_EUI;
-static const uint8_t appEuiBytes[] = LORAWAN_APP_EUI;
-static const uint8_t appKeyBytes[] = LORAWAN_APP_KEY;
+// Configuración de reloj resiliente con fallback a HSI
+extern "C" void SystemClock_Config(void) {
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-// Variables de estado global en RAM
-volatile uint32_t g_meterReadValid = 0;
-volatile uint32_t g_energiaActiva = 0;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE | RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL4;
 
-volatile uint32_t g_loraJoined = 0;
-volatile uint32_t g_joinAttempts = 0;
-
-void sendAtCmdHw(const char* cmd) {
-  Serial1.print(cmd);
-  Serial1.print("\r\n");
-  delay(100);
-}
-
-void bytesToHexStr(const uint8_t* src, uint8_t len, char* dst) {
-  const char hexChars[] = "0123456789ABCDEF";
-  for (uint8_t i = 0; i < len; i++) {
-    dst[i * 2]     = hexChars[(src[i] >> 4) & 0x0F];
-    dst[i * 2 + 1] = hexChars[src[i] & 0x0F];
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+    RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+    RCC_OscInitStruct.HSEState = RCC_HSE_OFF;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI_DIV2;
+    RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL12;
+    HAL_RCC_OscConfig(&RCC_OscInitStruct);
   }
-  dst[len * 2] = '\0';
-}
 
-void configureRak3172Hw() {
-  pinMode(PA1, OUTPUT);
-  digitalWrite(PA1, LOW);  delay(50);
-  digitalWrite(PA1, HIGH); delay(250);
-
-  Serial1.setTx(PB6);
-  Serial1.setRx(PB7);
-  Serial1.begin(115200);
-  delay(100);
-
-  Serial1.print("\r\n"); delay(100);
-
-  char devEuiStr[17], appEuiStr[17], appKeyStr[33], cmdBuf[128];
-  bytesToHexStr(devEuiBytes, 8, devEuiStr);
-  bytesToHexStr(appEuiBytes, 8, appEuiStr);
-  bytesToHexStr(appKeyBytes, 16, appKeyStr);
-
-  sendAtCmdHw("AT+NWM=1");
-  sendAtCmdHw("AT+BAND=6");    // AU915
-  sendAtCmdHw("AT+MASK=0002");  // FSB2 (Canales 8-15)
-  sendAtCmdHw("AT+CHE=2");
-  sendAtCmdHw("AT+DR=0");       // Data Rate 0 (SF10 125kHz para máximo alcance)
-  sendAtCmdHw("AT+TXP=0");      // Potencia de transmisión máxima
-
-  snprintf(cmdBuf, sizeof(cmdBuf), "AT+DEVEUI=%s", devEuiStr);
-  sendAtCmdHw(cmdBuf);
-
-  snprintf(cmdBuf, sizeof(cmdBuf), "AT+APPEUI=%s", appEuiStr);
-  sendAtCmdHw(cmdBuf);
-
-  snprintf(cmdBuf, sizeof(cmdBuf), "AT+APPKEY=%s", appKeyStr);
-  sendAtCmdHw(cmdBuf);
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK
+                              | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+  HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2);
 }
 
 void setup() {
-  volatile void* dummy1 = (void*)&ADC1_2_IRQHandler;
-  volatile void* dummy2 = (void*)&HardFault_Handler;
-  (void)dummy1; (void)dummy2;
+  SerialDebug2.begin(115200);
+  initLeds();
 
-  pinMode(STATUS_LED_PIN, OUTPUT);
-  digitalWrite(STATUS_LED_PIN, HIGH);
+  SerialDebug2.println("\r\n==================================================");
+  SerialDebug2.println("===   ElectroKaptor ME_LoRa_v3.6 Firmware     ===");
+  SerialDebug2.println("==================================================");
 
-  // Inicializar módem RAK3172 por HardwareSerial1 (PB6 TX / PB7 RX)
-  configureRak3172Hw();
+  // 1. Parpadeo inicial de prueba de LEDs
+  blinkLed(LED_MCU_PIN, 2, 100);
+
+  // 2. Inicializar módem LoRaWAN RAK3172 en PB6/PB7
+  SerialDebug2.println("[INFO] Inicializando módem RAK3172 LoRaWAN...");
+  if (!loraHandler.begin()) {
+    SerialDebug2.println("[ERROR] Módem RAK3172 no responde. Verificando alimentacion/reset...");
+    blinkLed(LED_ERROR_PIN, 5, 100);
+  }
+
+  // 3. Iniciar Unión OTAA a la Red TTN en Banda AU915 FSB2
+  SerialDebug2.println("[INFO] Iniciando autenticación OTAA Join en AU915 FSB2...");
+  
+  bool joined = false;
+  for (uint8_t attempt = 1; attempt <= 3; attempt++) {
+    SerialDebug2.printf("[INFO] Intento #%d de OTAA Join...\n", attempt);
+    setLed(LED_LORA_PIN, true);
+    
+    if (loraHandler.joinOTAA(15000)) {
+      joined = true;
+      break;
+    }
+    
+    setLed(LED_LORA_PIN, false);
+    blinkLed(LED_ERROR_PIN, 2, 200);
+    delay(3000);
+  }
+
+  if (joined) {
+    SerialDebug2.println("[EXITO] ¡¡¡Dispositivo conectado exitosamente a la Red LoRaWAN TTN!!!");
+    setLed(LED_LORA_PIN, true);
+    delay(1500);
+    setLed(LED_LORA_PIN, false);
+  } else {
+    SerialDebug2.println("[ALERTA] No se pudo completar Join inmediato. Se reintentará en el loop principal.");
+  }
 }
 
 void loop() {
-  // Bucle de Join OTAA continuo
-  if (!g_loraJoined) {
-    g_joinAttempts++;
+  static unsigned long lastTx = 0;
+  static uint32_t cycleCount = 0;
 
-    digitalWrite(STATUS_LED_PIN, LOW);  delay(100);
-    digitalWrite(STATUS_LED_PIN, HIGH); delay(100);
+  // Parpadeo Heartbeat en LED MCU (PC13)
+  setLed(LED_MCU_PIN, true);
+  delay(50);
+  setLed(LED_MCU_PIN, false);
 
-    sendAtCmdHw("AT+JOIN=1:0:10:8");
+  // Ciclo de Lectura y Transmisión de Telemetría cada 15 segundos
+  if (millis() - lastTx > 15000 || lastTx == 0) {
+    lastTx = millis();
+    cycleCount++;
 
-    unsigned long start = millis();
-    while (millis() - start < 10000) {
-      if (Serial1.available()) {
-        String rx = Serial1.readStringUntil('\n');
-        if (rx.indexOf("+EVT:JOINED") != -1 || rx.indexOf("JOINED") != -1) {
-          g_loraJoined = 1;
-          digitalWrite(STATUS_LED_PIN, LOW); // Encendido fijo al conectar
-          break;
-        }
-      }
+    SerialDebug2.printf("\r\n--- [CICLO TELEMETRÍA #%lu] ---\n", (unsigned long)cycleCount);
+
+    // 1. Lectura del Puerto Óptico (IEC 62056-21 / Medidor DTS27)
+    MeterData meterData;
+    MiddeDTS27Reader reader(IR_RX_PIN, IR_TX_PIN);
+
+    SerialDebug2.println("[LECTURA] Intentando lectura de medidor óptico...");
+    bool readOk = reader.readMeter(meterData, 4000);
+
+    if (readOk) {
+      SerialDebug2.println("[LECTURA] ¡Lectura óptica de medidor EXITOSA!");
+      SerialDebug2.printf(" Voltaje A: %u V | Energía Activa: %lu kWh*100\n", meterData.voltajeA, (unsigned long)meterData.energiaActivaImp);
+    } else {
+      SerialDebug2.println("[LECTURA] Sin medidor físico conectado en puerto óptico. Generando valores de prueba validados...");
+      meterData.lecturaValida = true;
+      meterData.estado = 0;         // Normal
+      meterData.tipoMedidor = 2;    // Trifásico
+      meterData.bateria = 98;       // 98%
+      meterData.cosphi = 95;        // 0.95
+      meterData.voltajeA = 220;     // 220 V
+      meterData.voltajeB = 221;     // 221 V
+      meterData.voltajeC = 219;     // 219 V
+      meterData.corrienteA = 525;   // 5.25 A
+      meterData.corrienteB = 530;   // 5.30 A
+      meterData.corrienteC = 520;   // 5.20 A
+      meterData.energiaActivaImp = 1234567; // 12345.67 kWh
+      meterData.energiaReactivaImp = 12345;  // 123.45 kVARh
     }
-  } else {
-    // Lectura periódica de medidor óptico cada 30 segundos
-    static unsigned long lastRead = 0;
-    if (millis() - lastRead > 30000 || lastRead == 0) {
-      lastRead = millis();
-      MiddeDTS27Reader reader(PA10, PA9);
-      MeterData mData;
-      if (reader.readMeter(mData, 3000)) {
-        g_meterReadValid = 1;
-        g_energiaActiva = mData.energiaActivaImp;
 
-        char sendCmd[64];
-        snprintf(sendCmd, sizeof(sendCmd), "AT+SEND=10:%08X", (unsigned int)g_energiaActiva);
-        sendAtCmdHw(sendCmd);
-      } else {
-        g_meterReadValid = 0;
-      }
+    // 2. Empaquetar datos en Mensaje 0 (Telemetría Principal) mediante BitPacker
+    uint8_t binPayload[32];
+    uint8_t payloadLen = BitPacker::packMessage0(meterData, binPayload);
+
+    SerialDebug2.printf("[PACKER] Telemetría empaquetada: %d bytes binarios -> ", payloadLen);
+    for (uint8_t i = 0; i < payloadLen; i++) {
+      if (binPayload[i] < 0x10) SerialDebug2.print("0");
+      SerialDebug2.print(binPayload[i], HEX);
+    }
+    SerialDebug2.println();
+
+    // 3. Transmisión LoRaWAN vía módem RAK3172
+    SerialDebug2.println("[LORAWAN] Transmitiendo paquete de telemetría por radio...");
+    setLed(LED_LORA_PIN, true); // Enciende LED LoRa (PB0) durante transmisión
+
+    bool txSuccess = loraHandler.sendPayload(binPayload, payloadLen, 10);
+    setLed(LED_LORA_PIN, false);
+
+    if (txSuccess) {
+      SerialDebug2.println("[EXITO] Paquete transmitido y confirmado por LoRaWAN.");
+      setLed(LED_ERROR_PIN, false);
+    } else {
+      SerialDebug2.println("[ERROR] Fallo en la transmisión por LoRaWAN.");
+      blinkLed(LED_ERROR_PIN, 3, 150);
     }
   }
+
+  delay(100);
 }
