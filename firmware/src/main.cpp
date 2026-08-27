@@ -202,29 +202,30 @@ void loop() {
       bool tx0 = loraHandler.sendPayload(g_binPayload0, payloadLen0, 10);
 
       if (tx0) {
-        debugPrintln("[ÉXITO] Trama 1 (Mensaje 0) enviada.");
+        debugPrintln("[ÉXITO] Trama 1 (Mensaje 0) enviada y confirmada por Gateway.");
       } else {
-        debugPrintln("[ERROR] Falló el envío de Trama 1.");
+        debugPrintln("[ERROR] Falló el envío de Trama 1 (Sin ACK del Gateway).");
       }
 
-      delay(1500); // Pausa breve entre tramas
+      // Pausa de 4.5 segundos entre tramas para que el módem complete totalmente las ventanas RX1/RX2
+      delay(4500);
 
       debugPrintln("[LORAWAN] Transmitiendo Trama 2 (Mensaje 1)...");
       bool tx1 = loraHandler.sendPayload(g_binPayload1, payloadLen1, 10);
 
       if (tx1) {
-        debugPrintln("[ÉXITO] Trama 2 (Mensaje 1) enviada.");
+        debugPrintln("[ÉXITO] Trama 2 (Mensaje 1) enviada y confirmada por Gateway.");
       } else {
-        debugPrintln("[ERROR] Falló el envío de Trama 2.");
+        debugPrintln("[ERROR] Falló el envío de Trama 2 (Sin ACK del Gateway).");
       }
 
-      // Si el envío fue exitoso, apagar todos los LEDs
+      // Si ambas tramas fueron confirmadas por el Gateway, apagar todos los LEDs
       if (tx0 && tx1) {
         setLed(LED_2_PIN, false);
         setLed(LED_3_PIN, false);
         setLed(LED_4_PIN, false);
       } else {
-        // Si no se envió el dato, apagar LED 2 y hacer parpadear el LED de error
+        // Si falló la confirmación con el Gateway, apagar LED 2 y hacer parpadear LED de error
         setLed(LED_2_PIN, false);
         blinkLed(LED_3_PIN, 4, 100);
       }

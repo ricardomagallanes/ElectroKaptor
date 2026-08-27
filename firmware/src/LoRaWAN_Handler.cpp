@@ -245,7 +245,7 @@ bool LoRaWANHandler::begin() {
   sendAtCmdHardware("AT+BAND=6", 1500); delay(500);  // Banda AU915
   sendAtCmdHardware("AT+MASK=0002", 1000);            // Sub-banda 2 FSB2 (Canales 8-15)
   sendAtCmdHardware("AT+DR=3", 1000);                 // DR3 (SF7 / 125kHz) -> Payload max 242 bytes en AU915
-  sendAtCmdHardware("AT+CFM=0", 1000);                // Modo Unconfirmed (Telemetría periódica sin ACK)
+  sendAtCmdHardware("AT+CFM=1", 1000);                // Modo Confirmado (ACK obligatorio del Gateway)
   sendAtCmdHardware("AT+ADR=1", 1000);                // Adaptive Data Rate
 
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+DEVEUI=%s", devEuiStr);
@@ -309,8 +309,8 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
     return false;
   }
 
-  // 2. Asegurar DR=3 para soportar payloads mayores a 11 bytes en AU915
-  sendAtCmdHardware("AT+DR=3", 600);
+  // 2. Limpiar buffer serie de residuos
+  while (SerialRAKLocal.available()) SerialRAKLocal.read();
 
   // 3. Convertir payload binario a representación Hex ASCII
   char hexBuf[128] = {0};
@@ -325,31 +325,86 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+SEND=%u:%s", (unsigned int)port, hexBuf);
   debugPrintf("[LORAWAN AT] >> %s\n", cmdBuf);
 
-  // 3. Transmisión del paquete
-  for (int retry = 0; retry < 2; retry++) {
-    String resp = sendAtCmdHardware(cmdBuf, 4000);
-    debugPrintf("[LORAWAN RAK] << %s\n", resp.c_str());
+  appendRakLog("\n>> ");
+  appendRakLog(cmdBuf);
+  appendRakLog("\n");
 
-    if (resp.indexOf("OK") >= 0 || resp.indexOf("+EVT:TX_DONE") >= 0) {
-      _failCount = 0;
-      _joined = true;
-      delay(3000); // Pausa para finalizar transmisión RF y ventanas de recepción RX1/RX2
-      return true;
+  char fullCmd[200];
+  snprintf(fullCmd, sizeof(fullCmd), "%s\r\n", cmdBuf);
+  SerialRAKLocal.write((const uint8_t*)fullCmd, strlen(fullCmd));
+
+  // 4. Esperar respuesta inicial del comando AT (OK / ERROR)
+  String resp = "";
+  unsigned long start = millis();
+  bool cmdAccepted = false;
+
+  while (millis() - start < 3000) {
+    while (SerialRAKLocal.available()) {
+      char c = (char)SerialRAKLocal.read();
+      resp += c;
     }
-    delay(1000);
+    if (resp.indexOf("OK") >= 0) {
+      cmdAccepted = true;
+      break;
+    }
+    if (resp.indexOf("AT_ERROR") >= 0 || resp.indexOf("AT_BUSY") >= 0 || resp.indexOf("AT_PARAM_ERROR") >= 0) {
+      cmdAccepted = false;
+      break;
+    }
+    delay(10);
   }
 
-  _failCount++;
-  debugPrintf("[LORAWAN] Fallo de transmisión acumulado: %d\n", _failCount);
+  appendRakLog("<< ");
+  appendRakLog(resp.c_str());
 
-  // Si fallan 2 intentos consecutivos (ej: gateway apagado), solicitar re-unión automática
-  if (_failCount >= 2) {
-    _joined = false;
-    debugPrintln("[LORAWAN] Reiniciando solicitud de Join OTAA en segundo plano...");
-    sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
+  if (!cmdAccepted) {
+    _failCount++;
+    debugPrintf("[LORAWAN] Comando AT rechazado por módem: %s\n", resp.c_str());
+    if (_failCount >= 2) {
+      _joined = false;
+      sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
+    }
+    return false;
   }
 
-  return false;
+  // 5. Esperar el evento de confirmación de radio (+EVT:SEND_CONFIRMED_OK o +EVT:TX_DONE)
+  String evtResp = "";
+  start = millis();
+  bool txSuccess = false;
+
+  while (millis() - start < 8000) {
+    while (SerialRAKLocal.available()) {
+      char c = (char)SerialRAKLocal.read();
+      evtResp += c;
+    }
+    if (evtResp.indexOf("SEND_CONFIRMED_OK") >= 0 || evtResp.indexOf("+EVT:TX_DONE") >= 0) {
+      txSuccess = true;
+      break;
+    }
+    if (evtResp.indexOf("SEND_CONFIRMED_FAILED") >= 0) {
+      txSuccess = false;
+      break;
+    }
+    delay(20);
+  }
+
+  appendRakLog(evtResp.c_str());
+  debugPrintf("[LORAWAN EVT] << %s\n", evtResp.c_str());
+
+  if (txSuccess) {
+    _failCount = 0;
+    _joined = true;
+    return true;
+  } else {
+    _failCount++;
+    debugPrintf("[LORAWAN] Fallo de confirmación ACK con Gateway (contador=%d)\n", _failCount);
+    if (_failCount >= 2) {
+      _joined = false;
+      debugPrintln("[LORAWAN] Pérdida de enlace con Gateway. Reiniciando Join OTAA en background...");
+      sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
+    }
+    return false;
+  }
 }
 
 #endif
