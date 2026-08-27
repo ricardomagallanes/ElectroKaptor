@@ -69,20 +69,22 @@ int MiddeDTS27Reader::readCharBitbang(unsigned long timeoutMs) {
   return -1;
 }
 
+extern HardwareSerial SerialDebug2;
+
 bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
   memset(&data, 0, sizeof(MeterData));
   data.lecturaValida = false;
   data.tipoMedidor = 2; // Trifásico (MIDDE DTS27)
   data.estado = 0;      // Normal
 
-  Serial.println("\n[IR-IEC] Iniciando lectura IEC 62056-21 Modo C (MIDDE DTS27)...");
-  Serial.printf("[IR-IEC] Pines: RX=%d, TX=%d | Velocidad: 300 baudios 7E1...\n", _rxPin, _txPin);
+  SerialDebug2.println("\n[IR-IEC] Iniciando lectura IEC 62056-21 Modo C (MIDDE DTS27)...");
+  SerialDebug2.printf("[IR-IEC] Pines: RX=%d, TX=%d | Velocidad: 300 baudios 7E1...\n", _rxPin, _txPin);
 
   begin(300);
   delay(200);
 
   // 1. Envío de comando Sign-on (/?!\r\n)
-  Serial.println("[IR-IEC] 1. Enviando comando Sign-on (/?!\r\n)...");
+  SerialDebug2.println("[IR-IEC] 1. Enviando comando Sign-on (/?!\r\n)...");
   sendStringBitbang("/?!\r\n");
 
   // 2. Captura de la respuesta de identificación (/XXX5...)
@@ -99,21 +101,21 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
   }
 
   if (idResponse.length() == 0) {
-    Serial.println("[IR-IEC] Alerta: Sin respuesta a Sign-on. (Verificar alineación de sonda óptica).");
+    SerialDebug2.println("[IR-IEC] Alerta: Sin respuesta a Sign-on. (Verificar alineación de sonda óptica en PA10/PA9).");
     data.estado = 2; // Sin Lectura
     return false;
   }
 
-  Serial.printf("[IR-IEC] ¡Identificación recibida!: %s", idResponse.c_str());
+  SerialDebug2.printf("[IR-IEC] ¡Identificación del Medidor Recibida!: %s", idResponse.c_str());
 
   // 3. Enviar ACK de solicitud de volcado de datos: ACK(0x06) + "000\r\n"
   delay(200);
-  Serial.println("[IR-IEC] 2. Enviando ACK (\x06" "000\r\n) para solicitar registros OBIS...");
+  SerialDebug2.println("[IR-IEC] 2. Enviando ACK (\\x06000\\r\\n) para solicitar registros OBIS...");
   sendCharBitbang(0x06);
   sendStringBitbang("000\r\n");
 
   // 4. Captura y parseo del bloque de registros OBIS
-  Serial.println("[IR-IEC] 3. Recibiendo trama de registros OBIS:");
+  SerialDebug2.println("[IR-IEC] 3. Recibiendo y decodificando registros OBIS:");
   timeout = millis() + 8000;
   String obisBuffer = "";
   int lineCount = 0;
@@ -122,7 +124,7 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
     int b = readCharBitbang(150);
     if (b >= 0) {
       char c = (char)(b & 0x7F);
-      Serial.print(c);
+      SerialDebug2.print(c);
       obisBuffer += c;
       timeout = millis() + 2000; // Refrescar timeout dinámico mientras sigan entrando caracteres
 
@@ -201,7 +203,7 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
       }
 
       if (c == '!') { // Fin de trama IEC 62056-21
-        Serial.println("\n[IR-IEC] Fin de trama detectado (!).");
+        SerialDebug2.println("\n[IR-IEC] Fin de trama detectado (!).");
         break;
       }
     }
@@ -210,9 +212,19 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
   if (lineCount > 0 || data.voltajeA > 0 || data.energiaActivaImp > 0 || idResponse.length() > 0) {
     data.lecturaValida = true;
     data.estado = 0;
-    Serial.println("\n[IR-IEC] ¡¡¡LECTURA IEC OBIS DECODIFICADA Y PROCESADA CON ÉXITO!!!");
-    Serial.printf("[IR-IEC] Tensión A: %d V | Tensión B: %d V | FP: %.2f | Energía Activa: %.2f kWh\n",
-                  data.voltajeA, data.voltajeB, data.cosphi / 100.0f, data.energiaActivaImp / 100.0f);
+    SerialDebug2.println("\n==================================================");
+    SerialDebug2.println("=== ¡¡¡PARAMETROS DECODIFICADOS DEL MEDIDOR!!! ===");
+    SerialDebug2.println("==================================================");
+    SerialDebug2.printf(" • ID Medidor               : %s", idResponse.c_str());
+    SerialDebug2.printf(" • Voltaje Fase A           : %u V\n", data.voltajeA);
+    SerialDebug2.printf(" • Voltaje Fase B           : %u V\n", data.voltajeB);
+    SerialDebug2.printf(" • Voltaje Fase C           : %u V\n", data.voltajeC);
+    SerialDebug2.printf(" • Corriente Fase A         : %.2f A\n", data.corrienteA / 100.0f);
+    SerialDebug2.printf(" • Corriente Fase B         : %.2f A\n", data.corrienteB / 100.0f);
+    SerialDebug2.printf(" • Factor de Potencia (Cos): %.2f\n", data.cosphi / 100.0f);
+    SerialDebug2.printf(" • Frecuencia Red           : %.2f Hz\n", data.frecuenciaMin / 100.0f);
+    SerialDebug2.printf(" • Energía Activa Importada : %.2f kWh\n", data.energiaActivaImp / 100.0f);
+    SerialDebug2.println("==================================================");
     return true;
   }
 
