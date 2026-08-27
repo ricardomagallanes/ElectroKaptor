@@ -169,8 +169,9 @@ static String sendAtCmdHardware(const char* cmd, uint32_t timeoutMs = 2000) {
   appendRakLog(cmd);
   appendRakLog("\n");
 
-  SerialRAKLocal.print(cmd);
-  SerialRAKLocal.print("\r\n");
+  char fullCmd[200];
+  snprintf(fullCmd, sizeof(fullCmd), "%s\r\n", cmd);
+  SerialRAKLocal.write((const uint8_t*)fullCmd, strlen(fullCmd));
 
   String resp = "";
   unsigned long start = millis();
@@ -179,7 +180,7 @@ static String sendAtCmdHardware(const char* cmd, uint32_t timeoutMs = 2000) {
       char c = (char)SerialRAKLocal.read();
       resp += c;
     }
-    if (resp.indexOf("OK") >= 0 || resp.indexOf("AT_ERROR") >= 0 || resp.indexOf("+EVT:") >= 0) {
+    if (resp.indexOf("OK") >= 0 || resp.indexOf("AT_ERROR") >= 0 || resp.indexOf("AT_PARAM_ERROR") >= 0 || resp.indexOf("+EVT:") >= 0) {
       break;
     }
   }
@@ -274,11 +275,11 @@ bool LoRaWANHandler::isJoined() {
     }
   }
 
-  // 2. Consultar estado del stack LoRaWAN
+  // 2. Consultar estado del stack LoRaWAN de forma estricta
   String resp = sendAtCmdHardware("AT+NJS=?", 800);
-  if (resp.indexOf("1") >= 0) {
+  if (resp.indexOf("AT+NJS=1") >= 0 || resp.indexOf("NJS=1") >= 0 || resp.indexOf("=1") >= 0) {
     _joined = true;
-  } else if (resp.indexOf("0") >= 0) {
+  } else {
     _joined = false;
   }
   return _joined;
@@ -301,19 +302,26 @@ bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
 bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t port) {
   if (length == 0) return false;
 
-  // 1. Convertir payload binario a representación Hex ASCII
+  // 1. Verificar que el módem esté efectivamente unido a la red
+  if (!_joined && !isJoined()) {
+    debugPrintln("[LORAWAN] Módem no unido a TTN. Omitiendo envío hasta completar Join.");
+    return false;
+  }
+
+  // 2. Convertir payload binario a representación Hex ASCII
   char hexBuf[128] = {0};
   const char hexChars[] = "0123456789ABCDEF";
   for (uint8_t i = 0; i < length; i++) {
     hexBuf[i * 2]     = hexChars[(payload[i] >> 4) & 0x0F];
     hexBuf[i * 2 + 1] = hexChars[payload[i] & 0x0F];
   }
+  hexBuf[length * 2] = '\0';
 
   char cmdBuf[160];
-  snprintf(cmdBuf, sizeof(cmdBuf), "AT+SEND=%d:%s", port, hexBuf);
+  snprintf(cmdBuf, sizeof(cmdBuf), "AT+SEND=%u:%s", (unsigned int)port, hexBuf);
   debugPrintf("[LORAWAN AT] >> %s\n", cmdBuf);
 
-  // 2. Transmisión del paquete
+  // 3. Transmisión del paquete
   for (int retry = 0; retry < 2; retry++) {
     String resp = sendAtCmdHardware(cmdBuf, 4000);
     debugPrintf("[LORAWAN RAK] << %s\n", resp.c_str());
@@ -341,3 +349,4 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
 }
 
 #endif
+
