@@ -15,15 +15,15 @@
  * MAPA FINAL DE PINES VERIFICADO EN HARDWARE:
  * 
  * 1. PUERTO ÓPTICO (IEC 62056-21 Modo C / Medidor DTS27):
- *    - IR_TX_PIN : PA9  (USART1 TX Nativo)
- *    - IR_RX_PIN : PA10 (USART1 RX Nativo)
+ *    - IR_TX_PIN : PB10 (Pin 21 del STM32 LQFP48 - Transmisión Infrarroja)
+ *    - IR_RX_PIN : PA3  (Pin 13 del STM32 LQFP48 - Recepción Fototransistor)
  *    - Baudrate  : 300 baudios, 7E1 (Modo C Handshake)
  * 
  * 2. MÓDULO LORAWAN (RAK3172 AT Modem):
- *    - LORA_TX_PIN  : PB6 (USART1 TX Remappeado)
- *    - LORA_RX_PIN  : PB7 (USART1 RX Remappeado)
- *    - LORA_RST_PIN : PA1 (Pin Reset NRST Activo en LOW)
- *    - Baudrate     : 115200 baudios (Band 6 / AU915)
+ *    - LORA_TX_PIN  : PB6 (Pin 42 del STM32 - USART1 TX Remappeado)
+ *    - LORA_RX_PIN  : PB7 (Pin 43 del STM32 - USART1 RX Remappeado)
+ *    - LORA_RST_PIN : PB8 (Pin 45 del STM32 - Control NRST)
+ *    - Baudrate     : 115200 baudios (Band 6 / AU915 FSB2)
  * 
  * 3. LEDS DE ESTADO Y MONITOREO:
  *    - LED_LORA_PIN  : PB0  (LED 3 - Estado de Red LoRaWAN)

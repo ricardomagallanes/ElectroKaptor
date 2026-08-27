@@ -10,6 +10,23 @@
 LoRaWANHandler loraHandler;
 HardwareSerial SerialDebug2(NC, PA2);  // Debug TX en PA2 (Libera PA3 para Puerto Óptico RX)
 
+// Estructura de Diagnóstico en RAM para lectura SWD/OpenOCD
+struct __attribute__((packed)) OpticalDiag {
+  uint32_t magic;         // 0x0771C41D
+  uint16_t voltajeA;
+  uint16_t voltajeB;
+  uint16_t voltajeC;
+  uint16_t corrienteA;
+  uint16_t corrienteB;
+  uint8_t  cosphi;
+  uint16_t frecuencia;
+  uint32_t energiaActiva;
+  uint8_t  lecturaOk;
+  uint8_t  padding[3];
+};
+
+volatile OpticalDiag g_optDiag = {0};
+
 // Control de LEDs en Lógica Active-LOW (LOW = Encendido, HIGH = Apagado)
 void setLed(uint8_t pin, bool turnOn) {
   digitalWrite(pin, turnOn ? LOW : HIGH);
@@ -140,6 +157,17 @@ void loop() {
 
     SerialDebug2.printf("[LECTURA] Intentando lectura de medidor óptico en PA3(RX / Pin 13) y PB10(TX / Pin 21)...\n");
     bool readOk = reader.readMeter(meterData, 4000);
+
+    g_optDiag.magic = 0x0771C41D;
+    g_optDiag.voltajeA = meterData.voltajeA;
+    g_optDiag.voltajeB = meterData.voltajeB;
+    g_optDiag.voltajeC = meterData.voltajeC;
+    g_optDiag.corrienteA = meterData.corrienteA;
+    g_optDiag.corrienteB = meterData.corrienteB;
+    g_optDiag.cosphi = meterData.cosphi;
+    g_optDiag.frecuencia = meterData.frecuenciaMin;
+    g_optDiag.energiaActiva = meterData.energiaActivaImp;
+    g_optDiag.lecturaOk = readOk ? 1 : 0;
 
     if (!readOk) {
       SerialDebug2.println("[ERROR LECTURA] No se recibió respuesta del medidor por la sonda óptica.");
