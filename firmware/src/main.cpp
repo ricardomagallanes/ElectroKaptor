@@ -199,19 +199,19 @@ void loop() {
       setLed(LED_2_PIN, true);
 
       debugPrintln("[LORAWAN] Transmitiendo Trama 1 (Mensaje 0)...");
-      bool tx0 = loraHandler.sendPayload(g_binPayload0, payloadLen0, 10);
+      bool tx0 = loraHandler.sendPayload(g_binPayload0, payloadLen0, 10, false); // Trama 1 (Unconfirmed)
 
       if (tx0) {
-        debugPrintln("[ÉXITO] Trama 1 (Mensaje 0) enviada y confirmada por Gateway.");
+        debugPrintln("[ÉXITO] Trama 1 (Mensaje 0) emitida al servidor.");
       } else {
-        debugPrintln("[ERROR] Falló el envío de Trama 1 (Sin ACK del Gateway).");
+        debugPrintln("[ERROR] Falló la emisión de Trama 1.");
       }
 
-      // Pausa de 4.5 segundos entre tramas para que el módem complete totalmente las ventanas RX1/RX2
-      delay(4500);
+      // Pausa entre tramas
+      delay(1500);
 
-      debugPrintln("[LORAWAN] Transmitiendo Trama 2 (Mensaje 1)...");
-      bool tx1 = loraHandler.sendPayload(g_binPayload1, payloadLen1, 10);
+      debugPrintln("[LORAWAN] Transmitiendo Trama 2 (Mensaje 1) con Confirmación de Gateway...");
+      bool tx1 = loraHandler.sendPayload(g_binPayload1, payloadLen1, 10, true); // Trama 2 (Confirmed ACK)
 
       if (tx1) {
         debugPrintln("[ÉXITO] Trama 2 (Mensaje 1) enviada y confirmada por Gateway.");
@@ -219,14 +219,15 @@ void loop() {
         debugPrintln("[ERROR] Falló el envío de Trama 2 (Sin ACK del Gateway).");
       }
 
-      // Si ambas tramas fueron confirmadas por el Gateway, apagar todos los LEDs
+      // Apagar INMEDIATAMENTE el LED 2 al concluir el intento de transmisión
+      setLed(LED_2_PIN, false);
+
+      // Si ambas tramas fueron exitosas (Gateway confirmó el ciclo), asegurar todos los LEDs apagados
       if (tx0 && tx1) {
-        setLed(LED_2_PIN, false);
         setLed(LED_3_PIN, false);
         setLed(LED_4_PIN, false);
       } else {
-        // Si falló la confirmación con el Gateway, apagar LED 2 y hacer parpadear LED de error
-        setLed(LED_2_PIN, false);
+        // ÚNICAMENTE si falló el envío (ej: Gateway desconectado), parpadear LED 3 de error
         blinkLed(LED_3_PIN, 4, 100);
       }
     } else {
