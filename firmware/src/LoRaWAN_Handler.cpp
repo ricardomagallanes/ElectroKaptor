@@ -301,13 +301,7 @@ extern HardwareSerial SerialDebug2;
 bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t port) {
   if (length == 0) return false;
 
-  // 1. Comprobar si el módem ya estableció el Join con el Gateway / TTN
-  if (!isJoined()) {
-    SerialDebug2.println("[LORAWAN] Módem en proceso de Join OTAA con TTN. Aguardando sincronización...");
-    return false;
-  }
-
-  // 2. Convertir payload binario a representación Hex ASCII
+  // 1. Convertir payload binario a representación Hex ASCII
   char hexBuf[128] = {0};
   const char hexChars[] = "0123456789ABCDEF";
   for (uint8_t i = 0; i < length; i++) {
@@ -319,7 +313,7 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+SEND=%d:%s", port, hexBuf);
   SerialDebug2.printf("[LORAWAN AT] >> %s\n", cmdBuf);
 
-  // 3. Transmisión del paquete
+  // 2. Transmisión del paquete
   for (int retry = 0; retry < 3; retry++) {
     String resp = sendAtCmdHardware(cmdBuf, 6000);
     SerialDebug2.printf("[LORAWAN RAK] << %s\n", resp.c_str());

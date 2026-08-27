@@ -48,38 +48,23 @@ void MiddeDTS27Reader::sendStringBitbang(const char* str) {
 int MiddeDTS27Reader::readCharBitbang(unsigned long timeoutMs) {
   unsigned long start = millis();
 
-  // Esperar a que la línea esté en reposo antes de buscar el bit de inicio
-  uint8_t idleState = digitalRead(_rxPin);
-
   while (millis() - start < timeoutMs) {
-    // Detectar cambio de estado desde la línea de reposo (Start Bit)
-    if (digitalRead(_rxPin) != idleState) {
-      uint8_t startState = !idleState;
+    // Detección de Start Bit (nivel LOW al recibir luz IR del medidor)
+    if (digitalRead(_rxPin) == LOW) {
       delayMicroseconds(BIT_TIME_US / 2); // Ir al centro del bit de inicio
-      
-      if (digitalRead(_rxPin) != startState) {
-        continue; // Falsos disparos / ruido
-      }
+      if (digitalRead(_rxPin) != LOW) continue; // Validar que siga en LOW (descartar ruido)
 
       uint8_t val = 0;
       for (int i = 0; i < 7; i++) {
         delayMicroseconds(BIT_TIME_US); // Muestrear al centro de cada uno de los 7 bits
-        uint8_t bitPin = digitalRead(_rxPin);
-        
-        // Si el reposo es HIGH, el bit 1 es HIGH (RS232 estándar). Si reposo es LOW, el bit 1 es LOW.
-        bool isBitOne = (idleState == HIGH) ? (bitPin == HIGH) : (bitPin == LOW);
-        if (isBitOne) {
+        if (digitalRead(_rxPin) == HIGH) {
           val |= (1 << i);
         }
       }
       
-      // Saltear bit de paridad y bit de parada
-      delayMicroseconds(BIT_TIME_US * 2);
-      
-      // Filtrar caracteres de nulos accidentales
-      if (val & 0x7F) {
-        return val & 0x7F;
-      }
+      // Saltear bit de paridad y bit de parada (3 tiempos de bit)
+      delayMicroseconds(BIT_TIME_US * 3);
+      return val & 0x7F;
     }
   }
   return -1;
