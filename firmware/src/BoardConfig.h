@@ -31,6 +31,10 @@
  *    - LED_RESERVE   : PB2  (LED 4 - Reserva)
  *    - LED_MCU_PIN   : PC13 (LED Onboard STM32)
  * 
+ * 4. CONTROL DE RELAYS (CORTE Y RECONEXIÓN REMOTA DE LUZ):
+ *    - RELAY_DISCONNECT_PIN : PA8 (Pin 29 del STM32 - Relay Desconexión)
+ *    - RELAY_CONNECT_PIN    : PA9 (Pin 30 del STM32 - Relay Conexión)
+ * 
  * ============================================================================
  */
 
@@ -85,5 +89,11 @@
 #define LED_ERROR_PIN  PB1  // LED 2 - Error
 #define LED_RESERVE    PB2  // LED 4 - Reserva
 #define LED_MCU_PIN    PC13 // LED Onboard Status
+
+// ----------------------------------------------------------------------------
+// 4. ASIGNACIÓN DE PINES - CONTROL DE RELAYS (CONEXIÓN Y DESCONEXIÓN REMOTA)
+// ----------------------------------------------------------------------------
+#define RELAY_DISCONNECT_PIN  PA8 // Pin 29 del STM32 LQFP48 (Control Relay Desconexión de Luz)
+#define RELAY_CONNECT_PIN     PA9 // Pin 30 del STM32 LQFP48 (Control Relay Conexión de Luz)
 
 #endif // BOARD_CONFIG_H

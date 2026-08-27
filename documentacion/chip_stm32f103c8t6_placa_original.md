@@ -71,6 +71,8 @@ A partir del ensayo de comunicación serie validado en placa, la distribución o
 | :---: | :--- | :---: | :--- | :--- | :--- |
 | **Puerto Óptico TX** | `IR_TX` | **Pin 21** | `PB10` | GPIO Output / `USART3_TX` | Transmisión hacia el LED IR del puerto óptico. |
 | **Puerto Óptico RX** | `IR_RX` | **Pin 13** | `PA3` | GPIO Input / `USART2_RX` | Recepción desde el fototransistor del puerto óptico. |
+| **Relay Desconexión** | `RELAY_DISC` | **Pin 29** | `PA8` | GPIO Output / `TIM1_CH1` | Control de Relay para desconexión/corte remoto de luz. |
+| **Relay Conexión** | `RELAY_CONN` | **Pin 30** | `PA9` | GPIO Output / `USART1_TX` | Control de Relay para reconexión remota de luz. |
 | **RAK3172 Pin 1** | `UART2_RX` | **Pin 42** | `PB6` | `USART1_TX` (Remapped) | Transmisión serie Hardware del MCU (TX) hacia el RAK3172. |
 | **RAK3172 Pin 2** | `UART2_TX` | **Pin 43** | `PB7` | `USART1_RX` (Remapped) | Recepción serie Hardware del MCU (RX) desde el RAK3172. |
 | **RAK3172 Pin 22** | `NRST` | **Pin 45** | `PB8` | GPIO Output (Control NRST) | Control de Reset por Hardware (`NRST`) del RAK3172. |
