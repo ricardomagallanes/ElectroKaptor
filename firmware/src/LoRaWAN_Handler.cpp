@@ -264,9 +264,21 @@ bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
   return false;
 }
 
+extern HardwareSerial SerialDebug2;
+
 bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t port) {
   if (length == 0) return false;
 
+  // 1. Verificar si el módem está unido a la red LoRaWAN (OTAA)
+  if (!isJoined()) {
+    SerialDebug2.println("[LORAWAN] Módem no unido a la red. Ejecutando OTAA Join...");
+    if (!joinOTAA(30000)) {
+      SerialDebug2.println("[LORAWAN] Falló el OTAA Join. Se cancela el envío.");
+      return false;
+    }
+  }
+
+  // 2. Convertir payload binario a representación Hex ASCII
   char hexBuf[128] = {0};
   const char hexChars[] = "0123456789ABCDEF";
   for (uint8_t i = 0; i < length; i++) {
@@ -276,8 +288,23 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
 
   char cmdBuf[160];
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+SEND=%d:%s", port, hexBuf);
-  String resp = sendAtCmdHardware(cmdBuf, 5000);
-  return (resp.indexOf("OK") >= 0);
+  SerialDebug2.printf("[LORAWAN AT] >> %s\n", cmdBuf);
+
+  // 3. Enviar comando AT con hasta 3 reintentos en caso de estar ocupado
+  for (int retry = 0; retry < 3; retry++) {
+    String resp = sendAtCmdHardware(cmdBuf, 6000);
+    SerialDebug2.printf("[LORAWAN RAK] << %s\n", resp.c_str());
+
+    if (resp.indexOf("OK") >= 0 || resp.indexOf("+EVT:TX_DONE") >= 0) {
+      return true;
+    } else if (resp.indexOf("NO_NETWORK") >= 0) {
+      SerialDebug2.println("[LORAWAN] RAK indica sin red. Reintentando Join...");
+      joinOTAA(25000);
+    }
+    delay(2000);
+  }
+
+  return false;
 }
 
 #endif
