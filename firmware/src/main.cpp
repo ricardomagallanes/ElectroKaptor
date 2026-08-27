@@ -6,9 +6,15 @@
 #include "BitPacker.h"
 #include "LoRaWAN_Handler.h"
 
-// Instancia global de manejo LoRaWAN
+// Instancia global de manejo LoRaWAN y Lector Óptico
 LoRaWANHandler loraHandler;
+MiddeDTS27Reader g_reader(IR_RX_PIN, IR_TX_PIN);
 HardwareSerial SerialDebug2(NC, PA2);  // Debug TX en PA2 (Libera PA3 para Puerto Óptico RX)
+
+// Buffers estáticos para proteger el Stack Cortex-M3 (evita desbordes y HardFaults)
+static MeterData g_meterData;
+static uint8_t   g_binPayload0[32];
+static uint8_t   g_binPayload1[32];
 
 // Estructura de Diagnóstico en RAM para lectura SWD/OpenOCD
 struct __attribute__((packed)) OpticalDiag {
@@ -53,10 +59,17 @@ void initLeds() {
   setLed(LED_MCU_PIN, false);
 }
 
-// Handlers de excepciones por seguridad
-extern "C" __attribute__((used)) void HardFault_Handler(void) { NVIC_SystemReset(); }
-extern "C" __attribute__((used)) void BusFault_Handler(void) { NVIC_SystemReset(); }
-extern "C" __attribute__((used)) void UsageFault_Handler(void) { NVIC_SystemReset(); }
+// Handlers de excepciones con trampa visual (evita bucles de reinicio ciegos)
+extern "C" __attribute__((used)) void HardFault_Handler(void) {
+  while (1) {
+    digitalWrite(LED_ERROR_PIN, LOW);
+    for (volatile int i = 0; i < 50000; i++);
+    digitalWrite(LED_ERROR_PIN, HIGH);
+    for (volatile int i = 0; i < 50000; i++);
+  }
+}
+extern "C" __attribute__((used)) void BusFault_Handler(void) { HardFault_Handler(); }
+extern "C" __attribute__((used)) void UsageFault_Handler(void) { HardFault_Handler(); }
 
 // Configuración de reloj resiliente con fallback a HSI
 extern "C" void SystemClock_Config(void) {
@@ -133,27 +146,24 @@ void loop() {
     SerialDebug2.printf("==================================================\n");
 
     // 1. INTERROGACIÓN AL MEDIDOR POR EL PUERTO ÓPTICO (PA3 RX / PB10 TX)
-    MeterData meterData;
-    MiddeDTS27Reader reader(IR_RX_PIN, IR_TX_PIN);
-
     SerialDebug2.println("[LECTURA] Interrogando al medidor por el puerto óptico en PA3(RX) / PB10(TX)...");
-    bool readOk = reader.readMeter(meterData, 4000);
+    bool readOk = g_reader.readMeter(g_meterData, 4000);
 
     g_optDiag.magic = 0x0771C41D;
-    g_optDiag.voltajeA = meterData.voltajeA;
-    g_optDiag.voltajeB = meterData.voltajeB;
-    g_optDiag.voltajeC = meterData.voltajeC;
-    g_optDiag.corrienteA = meterData.corrienteA;
-    g_optDiag.corrienteB = meterData.corrienteB;
-    g_optDiag.cosphi = meterData.cosphi;
-    g_optDiag.frecuencia = meterData.frecuenciaMin;
-    g_optDiag.energiaActiva = meterData.energiaActivaImp;
+    g_optDiag.voltajeA = g_meterData.voltajeA;
+    g_optDiag.voltajeB = g_meterData.voltajeB;
+    g_optDiag.voltajeC = g_meterData.voltajeC;
+    g_optDiag.corrienteA = g_meterData.corrienteA;
+    g_optDiag.corrienteB = g_meterData.corrienteB;
+    g_optDiag.cosphi = g_meterData.cosphi;
+    g_optDiag.frecuencia = g_meterData.frecuenciaMin;
+    g_optDiag.energiaActiva = g_meterData.energiaActivaImp;
     g_optDiag.lecturaOk = readOk ? 1 : 0;
 
     if (!readOk) {
       SerialDebug2.println("[ALERTA] Sonda óptica sin respuesta del medidor. Generando tramas de estado (Estado=2)...");
-      meterData.tipoMedidor = 2; // Trifásico DTS27
-      meterData.estado = 2;      // Sin Lectura / Alerta IR
+      g_meterData.tipoMedidor = 2; // Trifásico DTS27
+      g_meterData.estado = 2;      // Sin Lectura / Alerta IR
       blinkLed(LED_ERROR_PIN, 2, 150);
     } else {
       setLed(LED_ERROR_PIN, false);
@@ -161,37 +171,30 @@ void loop() {
     }
 
     // 2. Empaquetar TRAMA 1 (Mensaje 0: Telemetría Principal) mediante BitPacker
-    uint8_t binPayload0[32];
-    uint8_t payloadLen0 = BitPacker::packMessage0(meterData, binPayload0);
+    uint8_t payloadLen0 = BitPacker::packMessage0(g_meterData, g_binPayload0);
 
     SerialDebug2.printf("[PACKER] Trama 1 (Mensaje 0) empaquetada: %d bytes binarios -> ", payloadLen0);
     for (uint8_t i = 0; i < payloadLen0; i++) {
-      if (binPayload0[i] < 0x10) SerialDebug2.print("0");
-      SerialDebug2.print(binPayload0[i], HEX);
+      if (g_binPayload0[i] < 0x10) SerialDebug2.print("0");
+      SerialDebug2.print(g_binPayload0[i], HEX);
     }
     SerialDebug2.println();
 
     // 3. Empaquetar TRAMA 2 (Mensaje 1: Demandas / Energía Secundaria) mediante BitPacker
-    uint8_t binPayload1[32];
-    uint8_t payloadLen1 = BitPacker::packMessage1(meterData, binPayload1);
+    uint8_t payloadLen1 = BitPacker::packMessage1(g_meterData, g_binPayload1);
 
     SerialDebug2.printf("[PACKER] Trama 2 (Mensaje 1) empaquetada: %d bytes binarios -> ", payloadLen1);
     for (uint8_t i = 0; i < payloadLen1; i++) {
-      if (binPayload1[i] < 0x10) SerialDebug2.print("0");
-      SerialDebug2.print(binPayload1[i], HEX);
+      if (g_binPayload1[i] < 0x10) SerialDebug2.print("0");
+      SerialDebug2.print(g_binPayload1[i], HEX);
     }
     SerialDebug2.println();
 
     // 4. Verificar estado de Red LoRaWAN y transmitir ambas tramas al servidor TTN
-    if (!loraHandler.isJoined()) {
-      SerialDebug2.println("[LORAWAN] El módem RAK3172 aún no está unido a la red. Reintentando Join OTAA...");
-      loraHandler.joinOTAA(15000);
-    }
-
     if (loraHandler.isJoined()) {
       SerialDebug2.println("[LORAWAN] ¡Conectado a TTN! Transmitiendo Trama 1 (Mensaje 0)...");
       setLed(LED_LORA_PIN, true);
-      bool tx0 = loraHandler.sendPayload(binPayload0, payloadLen0, 10);
+      bool tx0 = loraHandler.sendPayload(g_binPayload0, payloadLen0, 10);
       setLed(LED_LORA_PIN, false);
 
       if (tx0) {
@@ -204,7 +207,7 @@ void loop() {
 
       SerialDebug2.println("[LORAWAN] Transmitiendo Trama 2 (Mensaje 1)...");
       setLed(LED_LORA_PIN, true);
-      bool tx1 = loraHandler.sendPayload(binPayload1, payloadLen1, 10);
+      bool tx1 = loraHandler.sendPayload(g_binPayload1, payloadLen1, 10);
       setLed(LED_LORA_PIN, false);
 
       if (tx1) {
