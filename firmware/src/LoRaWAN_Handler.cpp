@@ -234,7 +234,9 @@ bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
   sendAtCmdHardware("AT+NWM=1", 1500); delay(200);
   sendAtCmdHardware("AT+NJM=1", 1000); delay(200);
   sendAtCmdHardware("AT+BAND=6", 1500); delay(500); // AU915
-  sendAtCmdHardware("AT+MASK=0002", 1000);           // FSB2 (Canales 8-15 usador por TTN)
+  sendAtCmdHardware("AT+MASK=0002", 1000);           // FSB2 (Canales 8-15 usados por TTN)
+  sendAtCmdHardware("AT+CFM=0", 1000);               // Mensajes no confirmados (Sin esperar ACK downlink)
+  sendAtCmdHardware("AT+ADR=1", 1000);               // Adaptive Data Rate activado
 
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+DEVEUI=%s", devEuiStr);
   sendAtCmdHardware(cmdBuf, 1000);
@@ -299,6 +301,7 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
     SerialDebug2.printf("[LORAWAN RAK] << %s\n", resp.c_str());
 
     if (resp.indexOf("OK") >= 0 || resp.indexOf("+EVT:TX_DONE") >= 0) {
+      delay(4000); // Pausa para finalizar transmisión RF y ventanas de recepción RX1/RX2
       return true;
     } else if (resp.indexOf("NO_NETWORK") >= 0) {
       SerialDebug2.println("[LORAWAN] RAK indica sin red. Reintentando Join...");
