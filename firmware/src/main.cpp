@@ -202,10 +202,11 @@ void loop() {
       bool tx0 = loraHandler.sendPayload(g_binPayload0, payloadLen0, 10);
 
       if (tx0) {
-        debugPrintln("[ÉXITO] Trama 1 (Mensaje 0) enviada al servidor.");
+        debugPrintln("[ÉXITO] Trama 1 (Mensaje 0) enviada y confirmada por Gateway.");
       } else {
-        debugPrintln("[ERROR] Falló el envío de Trama 1.");
-        blinkLed(LED_3_PIN, 4, 80); // Error en LED 3
+        debugPrintln("[ERROR] Falló el envío/confirmación de Trama 1 (Sin respuesta del Gateway).");
+        setLed(LED_2_PIN, false);
+        blinkLed(LED_3_PIN, 5, 80); // Parpadeo de error en LED 3
       }
 
       delay(3000); // Pausa entre transmisiones para respetar ventanas RX1/RX2 de TTN
@@ -214,17 +215,18 @@ void loop() {
       bool tx1 = loraHandler.sendPayload(g_binPayload1, payloadLen1, 10);
 
       if (tx1) {
-        debugPrintln("[ÉXITO] Trama 2 (Mensaje 1) enviada al servidor.");
+        debugPrintln("[ÉXITO] Trama 2 (Mensaje 1) enviada y confirmada por Gateway.");
       } else {
-        debugPrintln("[ERROR] Falló el envío de Trama 2.");
-        blinkLed(LED_3_PIN, 4, 80); // Error en LED 3
+        debugPrintln("[ERROR] Falló el envío/confirmación de Trama 2 (Sin respuesta del Gateway).");
+        setLed(LED_2_PIN, false);
+        blinkLed(LED_3_PIN, 5, 80); // Parpadeo de error en LED 3
       }
 
       // SIEMPRE apagar el LED 2 al concluir el intento de transmisión de ambas tramas
       setLed(LED_2_PIN, false);
 
       if (!tx0 || !tx1) {
-        blinkLed(LED_3_PIN, 3, 100);
+        blinkLed(LED_3_PIN, 4, 100);
       }
     } else {
       debugPrintln("[ALERTA] Dispositivo aguardando conexión / reconexión a la red TTN.");
