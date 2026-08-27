@@ -132,36 +132,32 @@ void loop() {
     lastTx = millis();
     cycleCount++;
 
-    SerialDebug2.printf("\r\n--- [CICLO TELEMETRÍA #%lu] ---\n", (unsigned long)cycleCount);
+    SerialDebug2.printf("\r\n--- [CICLO LECTURA Y TELEMETRÍA #%lu] ---\n", (unsigned long)cycleCount);
 
     // 1. Lectura del Puerto Óptico (IEC 62056-21 / Medidor DTS27)
     MeterData meterData;
     MiddeDTS27Reader reader(IR_RX_PIN, IR_TX_PIN);
 
-    SerialDebug2.println("[LECTURA] Intentando lectura de medidor óptico...");
+    SerialDebug2.println("[LECTURA] Intentando lectura de medidor por puerto óptico...");
     bool readOk = reader.readMeter(meterData, 4000);
 
-    if (readOk) {
-      SerialDebug2.println("[LECTURA] ¡Lectura óptica de medidor EXITOSA!");
-      SerialDebug2.printf(" Voltaje A: %u V | Energía Activa: %lu kWh*100\n", meterData.voltajeA, (unsigned long)meterData.energiaActivaImp);
-    } else {
-      SerialDebug2.println("[LECTURA] Sin medidor físico conectado en puerto óptico. Generando valores de prueba validados...");
-      meterData.lecturaValida = true;
-      meterData.estado = 0;         // Normal
-      meterData.tipoMedidor = 2;    // Trifásico
-      meterData.bateria = 98;       // 98%
-      meterData.cosphi = 95;        // 0.95
-      meterData.voltajeA = 220;     // 220 V
-      meterData.voltajeB = 221;     // 221 V
-      meterData.voltajeC = 219;     // 219 V
-      meterData.corrienteA = 525;   // 5.25 A
-      meterData.corrienteB = 530;   // 5.30 A
-      meterData.corrienteC = 520;   // 5.20 A
-      meterData.energiaActivaImp = 1234567; // 12345.67 kWh
-      meterData.energiaReactivaImp = 12345;  // 123.45 kVARh
+    if (!readOk) {
+      SerialDebug2.println("[ERROR LECTURA] No se recibió respuesta del medidor por la sonda óptica.");
+      SerialDebug2.println("[ALERTA] Se cancela el envío LoRaWAN de este ciclo. Reintentando lectura en el próximo ciclo...");
+      
+      // Parpadeo de error (LED Rojo 2 - PB1)
+      blinkLed(LED_ERROR_PIN, 4, 150);
+      return; // Saltar transmisión hasta que la sonda esté conectada y la lectura sea válida
     }
 
-    // 2. Empaquetar datos en Mensaje 0 (Telemetría Principal) mediante BitPacker
+    // Apagar LED de Error si la lectura fue exitosa
+    setLed(LED_ERROR_PIN, false);
+
+    SerialDebug2.println("[LECTURA] ¡Lectura óptica de medidor EXITOSA!");
+    SerialDebug2.printf(" Voltaje A: %u V | Voltaje B: %u V | Voltaje C: %u V\n", meterData.voltajeA, meterData.voltajeB, meterData.voltajeC);
+    SerialDebug2.printf(" Energía Activa Importada: %lu kWh*100\n", (unsigned long)meterData.energiaActivaImp);
+
+    // 2. Empaquetar datos reales del medidor en Mensaje 0 (Telemetría Principal) mediante BitPacker
     uint8_t binPayload[32];
     uint8_t payloadLen = BitPacker::packMessage0(meterData, binPayload);
 
@@ -181,7 +177,6 @@ void loop() {
 
     if (txSuccess) {
       SerialDebug2.println("[EXITO] Paquete transmitido y confirmado por LoRaWAN.");
-      setLed(LED_ERROR_PIN, false);
     } else {
       SerialDebug2.println("[ERROR] Fallo en la transmisión por LoRaWAN.");
       blinkLed(LED_ERROR_PIN, 3, 150);
