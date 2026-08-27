@@ -204,6 +204,11 @@ bool LoRaWANHandler::isJoined() {
 }
 
 bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
+  if (isJoined()) {
+    _joined = true;
+    return true;
+  }
+
   uint8_t devEuiBytes[] = LORAWAN_DEV_EUI;
   uint8_t appEuiBytes[] = LORAWAN_APP_EUI;
   uint8_t appKeyBytes[] = LORAWAN_APP_KEY;
@@ -226,9 +231,9 @@ bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
   }
   appKeyStr[32] = '\0';
 
-  sendAtCmdHardware("AT+NWM=1", 1500); delay(300);
-  sendAtCmdHardware("AT+NJM=1", 1000); delay(300);
-  sendAtCmdHardware("AT+BAND=6", 1500); delay(1000); // AU915
+  sendAtCmdHardware("AT+NWM=1", 1500); delay(200);
+  sendAtCmdHardware("AT+NJM=1", 1000); delay(200);
+  sendAtCmdHardware("AT+BAND=6", 1500); delay(500); // AU915
   sendAtCmdHardware("AT+MASK=0002", 1000);           // FSB2 (Canales 8-15 usador por TTN)
 
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+DEVEUI=%s", devEuiStr);
@@ -240,8 +245,7 @@ bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+APPKEY=%s", appKeyStr);
   sendAtCmdHardware(cmdBuf, 1000);
 
-  // Detener Join previo y lanzar nuevo Join OTAA
-  sendAtCmdHardware("AT+JOIN=0", 500); delay(300);
+  // Iniciar Join en RAK3172 (1: Join, 0: AutoJoin OFF, 10s intervalo, 8 reintentos)
   sendAtCmdHardware("AT+JOIN=1:0:10:8", 2000);
 
   unsigned long start = millis();
@@ -260,8 +264,7 @@ bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
     delay(500);
   }
 
-  _joined = false;
-  return false;
+  return isJoined();
 }
 
 extern HardwareSerial SerialDebug2;
