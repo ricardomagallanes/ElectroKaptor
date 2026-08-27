@@ -244,6 +244,7 @@ bool LoRaWANHandler::begin() {
   sendAtCmdHardware("AT+NJM=1", 1500); delay(1000); // Aguardar banner RUI3
   sendAtCmdHardware("AT+BAND=6", 1500); delay(500);  // Banda AU915
   sendAtCmdHardware("AT+MASK=0002", 1000);            // Sub-banda 2 FSB2 (Canales 8-15)
+  sendAtCmdHardware("AT+DR=3", 1000);                 // DR3 (SF7 / 125kHz) -> Payload max 242 bytes en AU915
   sendAtCmdHardware("AT+CFM=0", 1000);                // Modo Unconfirmed (Telemetría periódica sin ACK)
   sendAtCmdHardware("AT+ADR=1", 1000);                // Adaptive Data Rate
 
@@ -308,7 +309,10 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
     return false;
   }
 
-  // 2. Convertir payload binario a representación Hex ASCII
+  // 2. Asegurar DR=3 para soportar payloads mayores a 11 bytes en AU915
+  sendAtCmdHardware("AT+DR=3", 600);
+
+  // 3. Convertir payload binario a representación Hex ASCII
   char hexBuf[128] = {0};
   const char hexChars[] = "0123456789ABCDEF";
   for (uint8_t i = 0; i < length; i++) {
