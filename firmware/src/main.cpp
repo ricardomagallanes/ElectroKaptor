@@ -5,11 +5,11 @@
 #include "MiddeDTS27Reader.h"
 #include "BitPacker.h"
 #include "LoRaWAN_Handler.h"
+#include "DebugSerial.h"
 
 // Instancia global de manejo LoRaWAN y Lector Óptico
 LoRaWANHandler loraHandler;
 MiddeDTS27Reader g_reader(IR_RX_PIN, IR_TX_PIN);
-HardwareSerial SerialDebug2(NC, PA2);  // Debug TX en PA2 (Libera PA3 para Puerto Óptico RX)
 
 // Buffers estáticos para proteger el Stack Cortex-M3 (evita desbordes y HardFaults)
 static MeterData g_meterData;
@@ -48,24 +48,24 @@ void blinkLed(uint8_t pin, uint8_t times, uint16_t delayMs) {
 }
 
 void initLeds() {
-  pinMode(LED_LORA_PIN, OUTPUT);
-  pinMode(LED_ERROR_PIN, OUTPUT);
-  pinMode(LED_RESERVE, OUTPUT);
+  pinMode(LED_2_PIN, OUTPUT);
+  pinMode(LED_3_PIN, OUTPUT);
+  pinMode(LED_4_PIN, OUTPUT);
   pinMode(LED_MCU_PIN, OUTPUT);
 
-  setLed(LED_LORA_PIN, false);
-  setLed(LED_ERROR_PIN, false);
-  setLed(LED_RESERVE, false);
+  setLed(LED_2_PIN, false);
+  setLed(LED_3_PIN, false);
+  setLed(LED_4_PIN, false);
   setLed(LED_MCU_PIN, false);
 }
 
 // Handlers de excepciones con trampa visual (evita bucles de reinicio ciegos)
 extern "C" __attribute__((used)) void HardFault_Handler(void) {
   while (1) {
-    digitalWrite(LED_ERROR_PIN, LOW);
-    for (volatile int i = 0; i < 50000; i++);
-    digitalWrite(LED_ERROR_PIN, HIGH);
-    for (volatile int i = 0; i < 50000; i++);
+    digitalWrite(LED_3_PIN, LOW);
+    for (volatile int i = 0; i < 500000; i++);
+    digitalWrite(LED_3_PIN, HIGH);
+    for (volatile int i = 0; i < 500000; i++);
   }
 }
 extern "C" __attribute__((used)) void BusFault_Handler(void) { HardFault_Handler(); }
@@ -103,25 +103,25 @@ extern "C" void SystemClock_Config(void) {
 }
 
 void setup() {
-  SerialDebug2.begin(115200);
+  debugSerialInit(115200);
   initLeds();
 
-  SerialDebug2.println("\r\n==================================================");
-  SerialDebug2.println("===   ElectroKaptor ME_LoRa_v3.6 Firmware     ===");
-  SerialDebug2.println("==================================================");
+  debugPrintln("\r\n==================================================");
+  debugPrintln("===   ElectroKaptor ME_LoRa_v3.6 Firmware     ===");
+  debugPrintln("==================================================");
 
   // 1. Parpadeo inicial de prueba de LEDs
   blinkLed(LED_MCU_PIN, 2, 100);
 
   // 2. Inicializar módem LoRaWAN RAK3172 en PB6/PB7
-  SerialDebug2.println("[INFO] Inicializando módem RAK3172 LoRaWAN...");
+  debugPrintln("[INFO] Inicializando módem RAK3172 LoRaWAN...");
   if (!loraHandler.begin()) {
-    SerialDebug2.println("[ERROR] Módem RAK3172 no responde. Verificando alimentacion/reset...");
+    debugPrintln("[ERROR] Módem RAK3172 no responde. Verificando alimentacion/reset...");
     blinkLed(LED_3_PIN, 5, 100);
   }
 
   // 3. Iniciar Unión OTAA a la Red TTN en Banda AU915 FSB2
-  SerialDebug2.println("[INFO] Iniciando autenticación OTAA Join en AU915 FSB2...");
+  debugPrintln("[INFO] Iniciando autenticación OTAA Join en AU915 FSB2...");
   setLed(LED_2_PIN, true);
   loraHandler.joinOTAA(8000); // Lanzar solicitud de Join en RAK3172 en segundo plano
   setLed(LED_2_PIN, false);
@@ -141,12 +141,12 @@ void loop() {
     lastTx = millis();
     cycleCount++;
 
-    SerialDebug2.printf("\r\n==================================================\n");
-    SerialDebug2.printf("=== [CICLO LECTURA Y TELEMETRÍA #%lu] ===\n", (unsigned long)cycleCount);
-    SerialDebug2.printf("==================================================\n");
+    debugPrintf("\r\n==================================================\n");
+    debugPrintf("=== [CICLO LECTURA Y TELEMETRÍA #%lu] ===\n", (unsigned long)cycleCount);
+    debugPrintf("==================================================\n");
 
     // 1. INTERROGACIÓN AL MEDIDOR POR EL PUERTO ÓPTICO (PA3 RX / PB10 TX)
-    SerialDebug2.println("[LECTURA] Interrogando al medidor por el puerto óptico en PA3(RX) / PB10(TX)...");
+    debugPrintln("[LECTURA] Interrogando al medidor por el puerto óptico en PA3(RX) / PB10(TX)...");
     bool readOk = g_reader.readMeter(g_meterData, 4000);
 
     g_optDiag.magic = 0x0771C41D;
@@ -161,60 +161,60 @@ void loop() {
     g_optDiag.lecturaOk = readOk ? 1 : 0;
 
     if (!readOk) {
-      SerialDebug2.println("[ALERTA] Sonda óptica sin respuesta del medidor. Generando tramas de estado (Estado=2)...");
+      debugPrintln("[ALERTA] Sonda óptica sin respuesta del medidor. Generando tramas de estado (Estado=2)...");
       g_meterData.tipoMedidor = 2; // Trifásico DTS27
       g_meterData.estado = 2;      // Sin Lectura / Alerta IR
       blinkLed(LED_3_PIN, 4, 100); // Error en LED 3
     } else {
-      SerialDebug2.println("[ÉXITO] Lectura óptica decodificada del medidor correctamente (Estado=0).");
+      debugPrintln("[ÉXITO] Lectura óptica decodificada del medidor correctamente (Estado=0).");
     }
 
     // 2. Empaquetar TRAMA 1 (Mensaje 0: Telemetría Principal) mediante BitPacker
     uint8_t payloadLen0 = BitPacker::packMessage0(g_meterData, g_binPayload0);
 
-    SerialDebug2.printf("[PACKER] Trama 1 (Mensaje 0) empaquetada: %d bytes binarios -> ", payloadLen0);
+    debugPrintf("[PACKER] Trama 1 (Mensaje 0) empaquetada: %d bytes binarios -> ", payloadLen0);
     for (uint8_t i = 0; i < payloadLen0; i++) {
-      if (g_binPayload0[i] < 0x10) SerialDebug2.print("0");
-      SerialDebug2.print(g_binPayload0[i], HEX);
+      if (g_binPayload0[i] < 0x10) debugPrint("0");
+      debugPrintf("%X", g_binPayload0[i]);
     }
-    SerialDebug2.println();
+    debugPrintln();
 
     // 3. Empaquetar TRAMA 2 (Mensaje 1: Demandas / Energía Secundaria) mediante BitPacker
     uint8_t payloadLen1 = BitPacker::packMessage1(g_meterData, g_binPayload1);
 
-    SerialDebug2.printf("[PACKER] Trama 2 (Mensaje 1) empaquetada: %d bytes binarios -> ", payloadLen1);
+    debugPrintf("[PACKER] Trama 2 (Mensaje 1) empaquetada: %d bytes binarios -> ", payloadLen1);
     for (uint8_t i = 0; i < payloadLen1; i++) {
-      if (g_binPayload1[i] < 0x10) SerialDebug2.print("0");
-      SerialDebug2.print(g_binPayload1[i], HEX);
+      if (g_binPayload1[i] < 0x10) debugPrint("0");
+      debugPrintf("%X", g_binPayload1[i]);
     }
-    SerialDebug2.println();
+    debugPrintln();
 
     // 4. Verificar estado de Red LoRaWAN y transmitir ambas tramas al servidor TTN
     if (loraHandler.isJoined()) {
-      SerialDebug2.println("[LORAWAN] ¡Conectado a TTN! Transmitiendo Tramas...");
+      debugPrintln("[LORAWAN] ¡Conectado a TTN! Transmitiendo Tramas...");
       
       // LED 2 permanece encendido continuo durante el envío
       setLed(LED_2_PIN, true);
 
-      SerialDebug2.println("[LORAWAN] Transmitiendo Trama 1 (Mensaje 0)...");
+      debugPrintln("[LORAWAN] Transmitiendo Trama 1 (Mensaje 0)...");
       bool tx0 = loraHandler.sendPayload(g_binPayload0, payloadLen0, 10);
 
       if (tx0) {
-        SerialDebug2.println("[ÉXITO] Trama 1 (Mensaje 0) enviada al servidor.");
+        debugPrintln("[ÉXITO] Trama 1 (Mensaje 0) enviada al servidor.");
       } else {
-        SerialDebug2.println("[ERROR] Falló el envío de Trama 1.");
+        debugPrintln("[ERROR] Falló el envío de Trama 1.");
         blinkLed(LED_3_PIN, 5, 100); // Error en LED 3
       }
 
       delay(5000); // Pausa entre transmisiones para respetar ventanas RX1/RX2 de TTN
 
-      SerialDebug2.println("[LORAWAN] Transmitiendo Trama 2 (Mensaje 1)...");
+      debugPrintln("[LORAWAN] Transmitiendo Trama 2 (Mensaje 1)...");
       bool tx1 = loraHandler.sendPayload(g_binPayload1, payloadLen1, 10);
 
       if (tx1) {
-        SerialDebug2.println("[ÉXITO] Trama 2 (Mensaje 1) enviada al servidor.");
+        debugPrintln("[ÉXITO] Trama 2 (Mensaje 1) enviada al servidor.");
       } else {
-        SerialDebug2.println("[ERROR] Falló el envío de Trama 2.");
+        debugPrintln("[ERROR] Falló el envío de Trama 2.");
         blinkLed(LED_3_PIN, 5, 100); // Error en LED 3
       }
 
@@ -223,7 +223,7 @@ void loop() {
         setLed(LED_2_PIN, false);
       }
     } else {
-      SerialDebug2.println("[ALERTA] Dispositivo aguardando respuesta de Join de la red TTN.");
+      debugPrintln("[ALERTA] Dispositivo aguardando respuesta de Join de la red TTN.");
       blinkLed(LED_3_PIN, 3, 150); // Indicador de espera/error en LED 3
     }
   }

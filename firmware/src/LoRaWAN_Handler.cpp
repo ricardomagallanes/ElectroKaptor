@@ -296,7 +296,7 @@ bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
   return isJoined();
 }
 
-extern HardwareSerial SerialDebug2;
+#include "DebugSerial.h"
 
 bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t port) {
   if (length == 0) return false;
@@ -311,12 +311,12 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
 
   char cmdBuf[160];
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+SEND=%d:%s", port, hexBuf);
-  SerialDebug2.printf("[LORAWAN AT] >> %s\n", cmdBuf);
+  debugPrintf("[LORAWAN AT] >> %s\n", cmdBuf);
 
   // 2. Transmisión del paquete
   for (int retry = 0; retry < 3; retry++) {
     String resp = sendAtCmdHardware(cmdBuf, 6000);
-    SerialDebug2.printf("[LORAWAN RAK] << %s\n", resp.c_str());
+    debugPrintf("[LORAWAN RAK] << %s\n", resp.c_str());
 
     if (resp.indexOf("OK") >= 0 || resp.indexOf("+EVT:TX_DONE") >= 0) {
       delay(4000); // Pausa para finalizar transmisión RF y ventanas de recepción RX1/RX2
