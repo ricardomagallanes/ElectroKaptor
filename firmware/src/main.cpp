@@ -227,16 +227,10 @@ void loop() {
       }
     } else {
       debugPrintln("[ALERTA] Dispositivo aguardando conexión / reconexión a la red TTN.");
-      setLed(LED_2_PIN, false);    // Asegurar LED 2 apagado
+      setLed(LED_2_PIN, false); // Asegurar LED 2 apagado
 
-      // Secuencia visual de error en LED 3 por falta de enlace
-      blinkLed(LED_3_PIN, 3, 150);
-
-      // Reintentar Join en segundo plano y señalar si falla
-      if (!loraHandler.joinOTAA(2000)) {
-        debugPrintln("[ERROR] Reintento de Join OTAA fallido (Gateway offline). Señalizando en LED 3...");
-        blinkLed(LED_3_PIN, 5, 80); // Secuencia rápida de fallo de Join en LED 3
-      }
+      // Secuencia visual de error en LED 3 (Fallo de Join / Sin enlace con Gateway)
+      blinkLed(LED_3_PIN, 5, 80);
     }
   }
 

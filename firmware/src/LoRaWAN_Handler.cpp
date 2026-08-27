@@ -257,8 +257,8 @@ bool LoRaWANHandler::begin() {
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+APPKEY=%s", appKeyStr);
   sendAtCmdHardware(cmdBuf, 1000);
 
-  // Lanzar AutoJoin permanente en RAK3172 (1: Join, 1: AutoJoin ON, 10s intervalo, 8 reintentos)
-  sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
+  // Lanzar AutoJoin continuo en segundo plano (1: Join, 1: AutoJoin ON, 10s intervalo, 0: reintentos infinitos)
+  sendAtCmdHardware("AT+JOIN=1:1:10:0", 2000);
 
   return true;
 }
@@ -277,10 +277,11 @@ bool LoRaWANHandler::isJoined() {
   }
 
   // 2. Consultar estado del stack LoRaWAN de forma estricta
-  String resp = sendAtCmdHardware("AT+NJS=?", 800);
+  String resp = sendAtCmdHardware("AT+NJS=?", 1000);
   if (resp.indexOf("AT+NJS=1") >= 0 || resp.indexOf("NJS=1") >= 0 || resp.indexOf("=1") >= 0) {
     _joined = true;
-  } else {
+    _failCount = 0;
+  } else if (resp.indexOf("AT+NJS=0") >= 0 || resp.indexOf("NJS=0") >= 0 || resp.indexOf("=0") >= 0) {
     _joined = false;
   }
   return _joined;
@@ -289,7 +290,7 @@ bool LoRaWANHandler::isJoined() {
 bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
   if (isJoined()) return true;
 
-  sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
+  sendAtCmdHardware("AT+JOIN=1:1:10:0", 2000);
   unsigned long start = millis();
   while (millis() - start < timeoutMs) {
     if (isJoined()) return true;
@@ -360,9 +361,9 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
   if (!cmdAccepted) {
     _failCount++;
     debugPrintf("[LORAWAN] Comando AT rechazado por módem: %s\n", resp.c_str());
-    if (_failCount >= 2) {
+    if (_failCount >= 3) {
       _joined = false;
-      sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
+      sendAtCmdHardware("AT+JOIN=1:1:10:0", 2000);
     }
     return false;
   }
@@ -398,10 +399,10 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
   } else {
     _failCount++;
     debugPrintf("[LORAWAN] Fallo de confirmación ACK con Gateway (contador=%d)\n", _failCount);
-    if (_failCount >= 2) {
+    if (_failCount >= 3) {
       _joined = false;
-      debugPrintln("[LORAWAN] Pérdida de enlace con Gateway. Reiniciando Join OTAA en background...");
-      sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
+      debugPrintln("[LORAWAN] Pérdida sostenida de enlace con Gateway. Re-armando AutoJoin...");
+      sendAtCmdHardware("AT+JOIN=1:1:10:0", 2000);
     }
     return false;
   }
