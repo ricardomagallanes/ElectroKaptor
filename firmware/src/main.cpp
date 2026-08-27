@@ -202,9 +202,9 @@ void loop() {
       bool tx0 = loraHandler.sendPayload(g_binPayload0, payloadLen0, 10);
 
       if (tx0) {
-        debugPrintln("[ÉXITO] Trama 1 (Mensaje 0) enviada y confirmada por Gateway.");
+        debugPrintln("[ÉXITO] Trama 1 (Mensaje 0) enviada.");
       } else {
-        debugPrintln("[ERROR] Falló el envío/confirmación de Trama 1 (Sin respuesta del Gateway).");
+        debugPrintln("[ERROR] Falló el envío de Trama 1.");
       }
 
       delay(1500); // Pausa breve entre tramas
@@ -213,24 +213,26 @@ void loop() {
       bool tx1 = loraHandler.sendPayload(g_binPayload1, payloadLen1, 10);
 
       if (tx1) {
-        debugPrintln("[ÉXITO] Trama 2 (Mensaje 1) enviada y confirmada por Gateway.");
+        debugPrintln("[ÉXITO] Trama 2 (Mensaje 1) enviada.");
       } else {
-        debugPrintln("[ERROR] Falló el envío/confirmación de Trama 2 (Sin respuesta del Gateway).");
+        debugPrintln("[ERROR] Falló el envío de Trama 2.");
       }
 
-      // SIEMPRE apagar el LED 2 al concluir el intento de transmisión de ambas tramas
-      setLed(LED_2_PIN, false);
-
-      // ÚNICAMENTE si alguna de las tramas falló (ej: Gateway apagado), activar LED 3 de error
-      if (!tx0 || !tx1) {
-        blinkLed(LED_3_PIN, 5, 80);
+      // Si el envío fue exitoso, apagar todos los LEDs
+      if (tx0 && tx1) {
+        setLed(LED_2_PIN, false);
+        setLed(LED_3_PIN, false);
+        setLed(LED_4_PIN, false);
+      } else {
+        // Si no se envió el dato, apagar LED 2 y hacer parpadear el LED de error
+        setLed(LED_2_PIN, false);
+        blinkLed(LED_3_PIN, 4, 100);
       }
     } else {
       debugPrintln("[ALERTA] Dispositivo aguardando conexión / reconexión a la red TTN.");
-      setLed(LED_2_PIN, false); // Asegurar LED 2 apagado
-
-      // Secuencia visual de error en LED 3 (Fallo de Join / Sin enlace con Gateway)
-      blinkLed(LED_3_PIN, 5, 80);
+      setLed(LED_2_PIN, false);
+      blinkLed(LED_3_PIN, 4, 100); // Parpadeo de error por falta de enlace
+      loraHandler.joinOTAA(1000);  // Reintentar Join en segundo plano
     }
   }
 
