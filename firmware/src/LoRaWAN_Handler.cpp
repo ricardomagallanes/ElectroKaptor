@@ -148,8 +148,27 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
 
 static HardwareSerial SerialRAKLocal(PB7, PB6); // PB7 = RX, PB6 = TX
 
+char g_rakLog[512] = {0};
+static uint16_t g_rakLogIdx = 0;
+
+void appendRakLog(const char* txt) {
+  uint16_t len = strlen(txt);
+  if (g_rakLogIdx + len >= sizeof(g_rakLog) - 1) {
+    g_rakLogIdx = 0;
+    memset(g_rakLog, 0, sizeof(g_rakLog));
+  }
+  memcpy(&g_rakLog[g_rakLogIdx], txt, len);
+  g_rakLogIdx += len;
+  g_rakLog[g_rakLogIdx] = '\0';
+}
+
 static String sendAtCmdHardware(const char* cmd, uint32_t timeoutMs = 2000) {
   while (SerialRAKLocal.available()) SerialRAKLocal.read(); // Clear RX buffer
+  
+  appendRakLog("\n>> ");
+  appendRakLog(cmd);
+  appendRakLog("\n");
+
   SerialRAKLocal.print(cmd);
   SerialRAKLocal.print("\r\n");
 
@@ -164,6 +183,10 @@ static String sendAtCmdHardware(const char* cmd, uint32_t timeoutMs = 2000) {
       break;
     }
   }
+
+  appendRakLog("<< ");
+  appendRakLog(resp.c_str());
+
   return resp;
 }
 
@@ -231,12 +254,12 @@ bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
   }
   appKeyStr[32] = '\0';
 
-  sendAtCmdHardware("AT+NWM=1", 1500); delay(200);
-  sendAtCmdHardware("AT+NJM=1", 1000); delay(200);
-  sendAtCmdHardware("AT+BAND=6", 1500); delay(500); // AU915
-  sendAtCmdHardware("AT+MASK=0002", 1000);           // FSB2 (Canales 8-15 usados por TTN)
-  sendAtCmdHardware("AT+CFM=0", 1000);               // Mensajes no confirmados (Sin esperar ACK downlink)
-  sendAtCmdHardware("AT+ADR=1", 1000);               // Adaptive Data Rate activado
+  sendAtCmdHardware("AT+NWM=1", 1500); delay(500);
+  sendAtCmdHardware("AT+NJM=1", 1500); delay(1000); // Esperar a que pase el banner de RAK
+  sendAtCmdHardware("AT+BAND=6", 1500); delay(500);  // AU915
+  sendAtCmdHardware("AT+MASK=0002", 1000);            // FSB2 (Canales 8-15 usados por TTN)
+  sendAtCmdHardware("AT+CFM=0", 1000);                // Mensajes no confirmados (Sin esperar ACK downlink)
+  sendAtCmdHardware("AT+ADR=1", 1000);                // Adaptive Data Rate activado
 
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+DEVEUI=%s", devEuiStr);
   sendAtCmdHardware(cmdBuf, 1000);
@@ -247,8 +270,8 @@ bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+APPKEY=%s", appKeyStr);
   sendAtCmdHardware(cmdBuf, 1000);
 
-  // Iniciar Join en RAK3172 (1: Join, 0: AutoJoin OFF, 10s intervalo, 8 reintentos)
-  sendAtCmdHardware("AT+JOIN=1:0:10:8", 2000);
+  // Iniciar Join en RAK3172 (1: Join, 1: AutoJoin ON, 10s intervalo, 8 reintentos)
+  sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
 
   unsigned long start = millis();
   while (millis() - start < timeoutMs) {
