@@ -122,9 +122,11 @@ void setup() {
 
   // 3. Iniciar Unión OTAA a la Red TTN en Banda AU915 FSB2
   debugPrintln("[INFO] Iniciando autenticación OTAA Join en AU915 FSB2...");
-  setLed(LED_2_PIN, true);
-  loraHandler.joinOTAA(8000); // Lanzar solicitud de Join en RAK3172 en segundo plano
   setLed(LED_2_PIN, false);
+  if (!loraHandler.joinOTAA(8000)) {
+    debugPrintln("[ALERTA] No se recibió confirmación inmediata de Join. El módem continuará auto-join en background.");
+    blinkLed(LED_3_PIN, 3, 100);
+  }
 }
 
 void loop() {
@@ -227,8 +229,15 @@ void loop() {
     } else {
       debugPrintln("[ALERTA] Dispositivo aguardando conexión / reconexión a la red TTN.");
       setLed(LED_2_PIN, false);    // Asegurar LED 2 apagado
-      blinkLed(LED_3_PIN, 3, 150); // Indicador de espera/alerta en LED 3
-      loraHandler.joinOTAA(1000);  // Reintentar Join en segundo plano si se perdió el Gateway
+
+      // Secuencia visual de error en LED 3 por falta de enlace
+      blinkLed(LED_3_PIN, 3, 150);
+
+      // Reintentar Join en segundo plano y señalar si falla
+      if (!loraHandler.joinOTAA(2000)) {
+        debugPrintln("[ERROR] Reintento de Join OTAA fallido (Gateway offline). Señalizando en LED 3...");
+        blinkLed(LED_3_PIN, 5, 80); // Secuencia rápida de fallo de Join en LED 3
+      }
     }
   }
 

@@ -25,11 +25,11 @@
  *    - LORA_RST_PIN : PB8 (Pin 45 del STM32 - Control NRST)
  *    - Baudrate     : 115200 baudios (Band 6 / AU915 FSB2)
  * 
- * 3. LEDS DE ESTADO Y MONITOREO:
- *    - LED_LORA_PIN  : PB0  (LED 3 - Estado de Red LoRaWAN)
- *    - LED_ERROR_PIN : PB1  (LED 2 - Fallo / Error)
- *    - LED_RESERVE   : PB2  (LED 4 - Reserva)
- *    - LED_MCU_PIN   : PC13 (LED Onboard STM32)
+ * 3. LEDS DE ESTADO Y MONITOREO (Lógica Active-LOW):
+ *    - LED_2_PIN     : PB1  (LED 2 - Actividad Lectura Óptica y Transmisión LoRaWAN)
+ *    - LED_3_PIN     : PB0  (LED 3 - Indicador de Fallo / Error)
+ *    - LED_4_PIN     : PB2  (LED 4 - Reserva)
+ *    - LED_MCU_PIN   : PC13 (LED Onboard Heartbeat MCU)
  * 
  * 4. CONTROL DE RELAYS (CORTE Y RECONEXIÓN REMOTA DE LUZ):
  *    - RELAY_DISCONNECT_PIN : PA8 (Pin 29 del STM32 - Relay Desconexión)

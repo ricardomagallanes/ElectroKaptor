@@ -95,16 +95,24 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
   // Limpiar buffer de entrada
   while (readCharBitbang(50) >= 0);
 
-  // 1. Envío de comando Sign-on (/?!\r\n)
+  // 1. Envío de comando Sign-on (/?!\r\n) con parpadeo de LED 2
   debugPrintln("[IR-IEC] 1. Enviando comando Sign-on (/?!\r\n)...");
-  digitalWrite(LED_2_PIN, LOW); // Encender LED 2 durante interrogación
+  digitalWrite(LED_2_PIN, LOW); // Pulso LED 2
   sendStringBitbang("/?!\r\n");
+  digitalWrite(LED_2_PIN, HIGH);
 
-  // 2. Captura de la respuesta de identificación (/XXX5...)
+  // 2. Captura de la respuesta de identificación (/XXX5...) con parpadeo de LED 2
   unsigned long startWait = millis();
+  unsigned long lastBlink = millis();
+  bool ledState = false;
   String idResponse = "";
 
   while (millis() - startWait < 4500) {
+    if (millis() - lastBlink > 100) {
+      lastBlink = millis();
+      ledState = !ledState;
+      digitalWrite(LED_2_PIN, ledState ? LOW : HIGH); // Parpadeo intermitente durante lectura
+    }
     int b = readCharBitbang(idResponse.length() == 0 ? 500 : 300);
     if (b >= 0) {
       char c = (char)(b & 0x7F);
@@ -114,6 +122,7 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
       break;
     }
   }
+  digitalWrite(LED_2_PIN, HIGH); // Apagar momentáneamente
 
   if (idResponse.length() == 0) {
     debugPrintln("[IR-IEC] Alerta: Sin respuesta a Sign-on. (Verificar alineación de sonda óptica en PA3/PB10).");
@@ -131,18 +140,28 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
   debugPrintf("[IR-IEC] ¡Identificación del Medidor Recibida!: %s\n", idResponse.c_str());
 
   // 3. Enviar ACK de solicitud de volcado de datos: ACK(0x06) + "000\r\n"
-  delay(300);
+  digitalWrite(LED_2_PIN, LOW);
+  delay(150);
+  digitalWrite(LED_2_PIN, HIGH);
+  delay(150);
   debugPrintln("[IR-IEC] 2. Enviando ACK (\\x06000\\r\\n) para solicitar registros OBIS...");
   sendCharBitbang(0x06);
   sendStringBitbang("000\r\n");
 
-  // 4. Captura y parseo del bloque de registros OBIS
+  // 4. Captura y parseo del bloque de registros OBIS con parpadeo de LED 2
   debugPrintln("[IR-IEC] 3. Recibiendo y decodificando registros OBIS:");
   unsigned long obisTimeout = millis() + 12000;
   String obisBuffer = "";
   int lineCount = 0;
+  lastBlink = millis();
+  ledState = false;
 
   while (millis() < obisTimeout) {
+    if (millis() - lastBlink > 100) {
+      lastBlink = millis();
+      ledState = !ledState;
+      digitalWrite(LED_2_PIN, ledState ? LOW : HIGH); // Parpadeo visible durante volcado OBIS
+    }
     int b = readCharBitbang(400);
     if (b >= 0) {
       char c = (char)(b & 0x7F);
