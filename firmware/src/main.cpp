@@ -193,7 +193,7 @@ void loop() {
     if (loraHandler.isJoined()) {
       debugPrintln("[LORAWAN] ¡Conectado a TTN! Transmitiendo Tramas...");
       
-      // LED 2 permanece encendido continuo durante el envío
+      // LED 2 permanece encendido continuo durante el proceso de envío
       setLed(LED_2_PIN, true);
 
       debugPrintln("[LORAWAN] Transmitiendo Trama 1 (Mensaje 0)...");
@@ -203,10 +203,10 @@ void loop() {
         debugPrintln("[ÉXITO] Trama 1 (Mensaje 0) enviada al servidor.");
       } else {
         debugPrintln("[ERROR] Falló el envío de Trama 1.");
-        blinkLed(LED_3_PIN, 5, 100); // Error en LED 3
+        blinkLed(LED_3_PIN, 4, 80); // Error en LED 3
       }
 
-      delay(5000); // Pausa entre transmisiones para respetar ventanas RX1/RX2 de TTN
+      delay(3000); // Pausa entre transmisiones para respetar ventanas RX1/RX2 de TTN
 
       debugPrintln("[LORAWAN] Transmitiendo Trama 2 (Mensaje 1)...");
       bool tx1 = loraHandler.sendPayload(g_binPayload1, payloadLen1, 10);
@@ -215,16 +215,20 @@ void loop() {
         debugPrintln("[ÉXITO] Trama 2 (Mensaje 1) enviada al servidor.");
       } else {
         debugPrintln("[ERROR] Falló el envío de Trama 2.");
-        blinkLed(LED_3_PIN, 5, 100); // Error en LED 3
+        blinkLed(LED_3_PIN, 4, 80); // Error en LED 3
       }
 
-      // Si el envío fue OK, se apaga el LED 2
-      if (tx0 && tx1) {
-        setLed(LED_2_PIN, false);
+      // SIEMPRE apagar el LED 2 al concluir el intento de transmisión de ambas tramas
+      setLed(LED_2_PIN, false);
+
+      if (!tx0 || !tx1) {
+        blinkLed(LED_3_PIN, 3, 100);
       }
     } else {
-      debugPrintln("[ALERTA] Dispositivo aguardando respuesta de Join de la red TTN.");
-      blinkLed(LED_3_PIN, 3, 150); // Indicador de espera/error en LED 3
+      debugPrintln("[ALERTA] Dispositivo aguardando conexión / reconexión a la red TTN.");
+      setLed(LED_2_PIN, false);    // Asegurar LED 2 apagado
+      blinkLed(LED_3_PIN, 3, 150); // Indicador de espera/alerta en LED 3
+      loraHandler.joinOTAA(1000);  // Reintentar Join en segundo plano si se perdió el Gateway
     }
   }
 

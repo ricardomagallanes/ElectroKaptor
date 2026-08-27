@@ -261,17 +261,16 @@ bool LoRaWANHandler::begin() {
   return true;
 }
 
-void LoRaWANHandler::process(uint32_t ms) {
-  delay(ms);
-}
-
 bool LoRaWANHandler::isJoined() {
   // 1. Escuchar eventos asíncronos pendientes en el buffer serie del RAK3172
   while (SerialRAKLocal.available()) {
     String line = SerialRAKLocal.readStringUntil('\n');
     if (line.indexOf("+EVT:JOINED") >= 0 || line.indexOf("JOINED") >= 0) {
       _joined = true;
+      _failCount = 0;
       return true;
+    } else if (line.indexOf("+EVT:JOIN_FAILED") >= 0) {
+      _joined = false;
     }
   }
 
@@ -288,6 +287,7 @@ bool LoRaWANHandler::isJoined() {
 bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
   if (isJoined()) return true;
 
+  sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
   unsigned long start = millis();
   while (millis() - start < timeoutMs) {
     if (isJoined()) return true;
@@ -314,15 +314,27 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
   debugPrintf("[LORAWAN AT] >> %s\n", cmdBuf);
 
   // 2. Transmisión del paquete
-  for (int retry = 0; retry < 3; retry++) {
-    String resp = sendAtCmdHardware(cmdBuf, 6000);
+  for (int retry = 0; retry < 2; retry++) {
+    String resp = sendAtCmdHardware(cmdBuf, 4000);
     debugPrintf("[LORAWAN RAK] << %s\n", resp.c_str());
 
     if (resp.indexOf("OK") >= 0 || resp.indexOf("+EVT:TX_DONE") >= 0) {
-      delay(4000); // Pausa para finalizar transmisión RF y ventanas de recepción RX1/RX2
+      _failCount = 0;
+      _joined = true;
+      delay(3000); // Pausa para finalizar transmisión RF y ventanas de recepción RX1/RX2
       return true;
     }
-    delay(2000);
+    delay(1000);
+  }
+
+  _failCount++;
+  debugPrintf("[LORAWAN] Fallo de transmisión acumulado: %d\n", _failCount);
+
+  // Si fallan 2 intentos consecutivos (ej: gateway apagado), solicitar re-unión automática
+  if (_failCount >= 2) {
+    _joined = false;
+    debugPrintln("[LORAWAN] Reiniciando solicitud de Join OTAA en segundo plano...");
+    sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
   }
 
   return false;

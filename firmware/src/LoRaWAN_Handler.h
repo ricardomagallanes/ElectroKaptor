@@ -20,6 +20,7 @@ public:
 
 private:
   bool _joined;
+  uint8_t _failCount;
 };
 
 #endif // LORAWAN_HANDLER_H
