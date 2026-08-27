@@ -85,10 +85,13 @@
 // ----------------------------------------------------------------------------
 // 3. ASIGNACIÓN DE PINES - LEDS E INDICADORES DE ESTADO (VERIFICADO)
 // ----------------------------------------------------------------------------
-#define LED_LORA_PIN   PB0  // LED 3 - Estado LoRa
-#define LED_ERROR_PIN  PB1  // LED 2 - Error
-#define LED_RESERVE    PB2  // LED 4 - Reserva
+#define LED_2_PIN      PB1  // LED 2 - Actividad Lectura Óptica y Transmisión LoRaWAN
+#define LED_3_PIN      PB0  // LED 3 - Indicador de Error / Fallo
+#define LED_4_PIN      PB2  // LED 4 - Reserva (Sin uso)
 #define LED_MCU_PIN    PC13 // LED Onboard Status
+#define LED_ERROR_PIN  PB0  // LED 3 - Alias de Error
+#define LED_LORA_PIN   PB1  // LED 2 - Alias de Actividad
+#define LED_RESERVE    PB2  // LED 4 - Alias Reserva
 
 // ----------------------------------------------------------------------------
 // 4. ASIGNACIÓN DE PINES - CONTROL DE RELAYS (CONEXIÓN Y DESCONEXIÓN REMOTA)

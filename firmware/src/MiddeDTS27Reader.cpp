@@ -1,5 +1,6 @@
 #include "MiddeDTS27Reader.h"
 #include "MeterConfig.h"
+#include "BoardConfig.h"
 
 #define BIT_TIME_US 3333 // 300 baudios (1/300 = 3333 us por bit)
 
@@ -41,6 +42,8 @@ void MiddeDTS27Reader::sendCharBitbang(char c) {
 
 void MiddeDTS27Reader::sendStringBitbang(const char* str) {
   while (*str) {
+    // Parpadeo suave en LED 2 durante la transmisión del comando
+    digitalWrite(LED_2_PIN, (digitalRead(LED_2_PIN) == LOW) ? HIGH : LOW);
     sendCharBitbang(*str++);
   }
 }
@@ -49,6 +52,9 @@ int MiddeDTS27Reader::readCharBitbang(unsigned long timeoutMs) {
   unsigned long start = millis();
 
   while (millis() - start < timeoutMs) {
+    // Parpadeo de búsqueda en LED 2
+    digitalWrite(LED_2_PIN, ((millis() / 100) % 2) ? LOW : HIGH);
+
     // Detección de Start Bit (nivel LOW al recibir luz IR del medidor)
     if (digitalRead(_rxPin) == LOW) {
       delayMicroseconds(BIT_TIME_US / 2); // Ir al centro del bit de inicio
@@ -213,6 +219,15 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
   if (lineCount > 0 || data.voltajeA > 0 || data.energiaActivaImp > 0 || idResponse.length() > 0) {
     data.lecturaValida = true;
     data.estado = 0;
+    
+    // Parpadeo rápido en LED 2 indicando lectura óptica exitosa
+    for (int i = 0; i < 8; i++) {
+      digitalWrite(LED_2_PIN, LOW);
+      delay(40);
+      digitalWrite(LED_2_PIN, HIGH);
+      delay(40);
+    }
+
     SerialDebug2.println("\n==================================================");
     SerialDebug2.println("=== ¡¡¡PARAMETROS DECODIFICADOS DEL MEDIDOR!!! ===");
     SerialDebug2.println("==================================================");
@@ -227,6 +242,15 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
     SerialDebug2.printf(" • Energía Activa Importada : %.2f kWh\n", data.energiaActivaImp / 100.0f);
     SerialDebug2.println("==================================================");
     return true;
+  }
+
+  // Lectura fallida / Sin respuesta: Apagar LED 2 y parpadear LED 3 de Error
+  digitalWrite(LED_2_PIN, HIGH);
+  for (int i = 0; i < 5; i++) {
+    digitalWrite(LED_3_PIN, LOW);
+    delay(100);
+    digitalWrite(LED_3_PIN, HIGH);
+    delay(100);
   }
 
   data.estado = 2; // Sin Lectura

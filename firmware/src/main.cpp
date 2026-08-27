@@ -117,14 +117,14 @@ void setup() {
   SerialDebug2.println("[INFO] Inicializando módem RAK3172 LoRaWAN...");
   if (!loraHandler.begin()) {
     SerialDebug2.println("[ERROR] Módem RAK3172 no responde. Verificando alimentacion/reset...");
-    blinkLed(LED_ERROR_PIN, 5, 100);
+    blinkLed(LED_3_PIN, 5, 100);
   }
 
   // 3. Iniciar Unión OTAA a la Red TTN en Banda AU915 FSB2
   SerialDebug2.println("[INFO] Iniciando autenticación OTAA Join en AU915 FSB2...");
-  setLed(LED_LORA_PIN, true);
+  setLed(LED_2_PIN, true);
   loraHandler.joinOTAA(8000); // Lanzar solicitud de Join en RAK3172 en segundo plano
-  setLed(LED_LORA_PIN, false);
+  setLed(LED_2_PIN, false);
 }
 
 void loop() {
@@ -164,9 +164,8 @@ void loop() {
       SerialDebug2.println("[ALERTA] Sonda óptica sin respuesta del medidor. Generando tramas de estado (Estado=2)...");
       g_meterData.tipoMedidor = 2; // Trifásico DTS27
       g_meterData.estado = 2;      // Sin Lectura / Alerta IR
-      blinkLed(LED_ERROR_PIN, 2, 150);
+      blinkLed(LED_3_PIN, 4, 100); // Error en LED 3
     } else {
-      setLed(LED_ERROR_PIN, false);
       SerialDebug2.println("[ÉXITO] Lectura óptica decodificada del medidor correctamente (Estado=0).");
     }
 
@@ -192,31 +191,40 @@ void loop() {
 
     // 4. Verificar estado de Red LoRaWAN y transmitir ambas tramas al servidor TTN
     if (loraHandler.isJoined()) {
-      SerialDebug2.println("[LORAWAN] ¡Conectado a TTN! Transmitiendo Trama 1 (Mensaje 0)...");
-      setLed(LED_LORA_PIN, true);
+      SerialDebug2.println("[LORAWAN] ¡Conectado a TTN! Transmitiendo Tramas...");
+      
+      // LED 2 permanece encendido continuo durante el envío
+      setLed(LED_2_PIN, true);
+
+      SerialDebug2.println("[LORAWAN] Transmitiendo Trama 1 (Mensaje 0)...");
       bool tx0 = loraHandler.sendPayload(g_binPayload0, payloadLen0, 10);
-      setLed(LED_LORA_PIN, false);
 
       if (tx0) {
-        SerialDebug2.println("[ÉXITO] Trama 1 (Mensaje 0) enviada y confirmada en servidor.");
+        SerialDebug2.println("[ÉXITO] Trama 1 (Mensaje 0) enviada al servidor.");
       } else {
         SerialDebug2.println("[ERROR] Falló el envío de Trama 1.");
+        blinkLed(LED_3_PIN, 5, 100); // Error en LED 3
       }
 
       delay(5000); // Pausa entre transmisiones para respetar ventanas RX1/RX2 de TTN
 
       SerialDebug2.println("[LORAWAN] Transmitiendo Trama 2 (Mensaje 1)...");
-      setLed(LED_LORA_PIN, true);
       bool tx1 = loraHandler.sendPayload(g_binPayload1, payloadLen1, 10);
-      setLed(LED_LORA_PIN, false);
 
       if (tx1) {
-        SerialDebug2.println("[ÉXITO] Trama 2 (Mensaje 1) enviada y confirmada en servidor.");
+        SerialDebug2.println("[ÉXITO] Trama 2 (Mensaje 1) enviada al servidor.");
       } else {
         SerialDebug2.println("[ERROR] Falló el envío de Trama 2.");
+        blinkLed(LED_3_PIN, 5, 100); // Error en LED 3
+      }
+
+      // Si el envío fue OK, se apaga el LED 2
+      if (tx0 && tx1) {
+        setLed(LED_2_PIN, false);
       }
     } else {
       SerialDebug2.println("[ALERTA] Dispositivo aguardando respuesta de Join de la red TTN.");
+      blinkLed(LED_3_PIN, 3, 150); // Indicador de espera/error en LED 3
     }
   }
 
