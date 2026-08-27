@@ -185,29 +185,54 @@ void loop() {
     SerialDebug2.printf(" Voltaje A: %u V | Voltaje B: %u V | Voltaje C: %u V\n", meterData.voltajeA, meterData.voltajeB, meterData.voltajeC);
     SerialDebug2.printf(" Energía Activa Importada: %lu kWh*100\n", (unsigned long)meterData.energiaActivaImp);
 
-    // 2. Empaquetar datos reales del medidor en Mensaje 0 (Telemetría Principal) mediante BitPacker
-    uint8_t binPayload[32];
-    uint8_t payloadLen = BitPacker::packMessage0(meterData, binPayload);
+    // 2. Empaquetar TRAMA 1 (Mensaje 0: Telemetría Principal) mediante BitPacker
+    uint8_t binPayload0[32];
+    uint8_t payloadLen0 = BitPacker::packMessage0(meterData, binPayload0);
 
-    SerialDebug2.printf("[PACKER] Telemetría empaquetada: %d bytes binarios -> ", payloadLen);
-    for (uint8_t i = 0; i < payloadLen; i++) {
-      if (binPayload[i] < 0x10) SerialDebug2.print("0");
-      SerialDebug2.print(binPayload[i], HEX);
+    SerialDebug2.printf("[PACKER] Trama 1 (Mensaje 0) empaquetada: %d bytes binarios -> ", payloadLen0);
+    for (uint8_t i = 0; i < payloadLen0; i++) {
+      if (binPayload0[i] < 0x10) SerialDebug2.print("0");
+      SerialDebug2.print(binPayload0[i], HEX);
     }
     SerialDebug2.println();
 
-    // 3. Transmisión LoRaWAN vía módem RAK3172
-    SerialDebug2.println("[LORAWAN] Transmitiendo paquete de telemetría por radio...");
+    // Transmisión LoRaWAN - Trama 1 (Puerto 10)
+    SerialDebug2.println("[LORAWAN] Transmitiendo Trama 1 (Mensaje 0) a TTN...");
     setLed(LED_LORA_PIN, true); // Enciende LED LoRa (PB0) durante transmisión
-
-    bool txSuccess = loraHandler.sendPayload(binPayload, payloadLen, 10);
+    bool txSuccess0 = loraHandler.sendPayload(binPayload0, payloadLen0, 10);
     setLed(LED_LORA_PIN, false);
 
-    if (txSuccess) {
-      SerialDebug2.println("[EXITO] Paquete transmitido y confirmado por LoRaWAN.");
+    if (txSuccess0) {
+      SerialDebug2.println("[ÉXITO] Trama 1 (Mensaje 0) enviada correctamente.");
     } else {
-      SerialDebug2.println("[ERROR] Fallo en la transmisión por LoRaWAN.");
-      blinkLed(LED_ERROR_PIN, 3, 150);
+      SerialDebug2.println("[ERROR] Falló el envío de Trama 1 por LoRaWAN.");
+      blinkLed(LED_ERROR_PIN, 2, 150);
+    }
+
+    delay(2500); // Pausa recomendada entre envíos por tiempo en aire (Duty Cycle)
+
+    // 3. Empaquetar TRAMA 2 (Mensaje 1: Configuración / Demandas / Energía Secundaria) mediante BitPacker
+    uint8_t binPayload1[32];
+    uint8_t payloadLen1 = BitPacker::packMessage1(meterData, binPayload1);
+
+    SerialDebug2.printf("[PACKER] Trama 2 (Mensaje 1) empaquetada: %d bytes binarios -> ", payloadLen1);
+    for (uint8_t i = 0; i < payloadLen1; i++) {
+      if (binPayload1[i] < 0x10) SerialDebug2.print("0");
+      SerialDebug2.print(binPayload1[i], HEX);
+    }
+    SerialDebug2.println();
+
+    // Transmisión LoRaWAN - Trama 2 (Puerto 10)
+    SerialDebug2.println("[LORAWAN] Transmitiendo Trama 2 (Mensaje 1) a TTN...");
+    setLed(LED_LORA_PIN, true);
+    bool txSuccess1 = loraHandler.sendPayload(binPayload1, payloadLen1, 10);
+    setLed(LED_LORA_PIN, false);
+
+    if (txSuccess1) {
+      SerialDebug2.println("[ÉXITO] Trama 2 (Mensaje 1) enviada correctamente.");
+    } else {
+      SerialDebug2.println("[ERROR] Falló el envío de Trama 2 por LoRaWAN.");
+      blinkLed(LED_ERROR_PIN, 2, 150);
     }
   }
 
