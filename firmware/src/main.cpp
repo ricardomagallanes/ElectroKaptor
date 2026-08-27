@@ -8,7 +8,7 @@
 
 // Instancia global de manejo LoRaWAN
 LoRaWANHandler loraHandler;
-HardwareSerial SerialDebug2(PA3, PA2);  // Debug en USART2
+HardwareSerial SerialDebug2(NC, PA2);  // Debug TX en PA2 (Libera PA3 para Puerto Óptico RX)
 
 // Control de LEDs en Lógica Active-LOW (LOW = Encendido, HIGH = Apagado)
 void setLed(uint8_t pin, bool turnOn) {
@@ -134,11 +134,11 @@ void loop() {
 
     SerialDebug2.printf("\r\n--- [CICLO LECTURA Y TELEMETRÍA #%lu] ---\n", (unsigned long)cycleCount);
 
-    // 1. Lectura del Puerto Óptico (IEC 62056-21 / Medidor DTS27 en PA10 RX / PA9 TX)
+    // 1. Lectura del Puerto Óptico (IEC 62056-21 / Medidor DTS27 en PA3 RX / PB10 TX)
     MeterData meterData;
     MiddeDTS27Reader reader(IR_RX_PIN, IR_TX_PIN);
 
-    SerialDebug2.printf("[LECTURA] Intentando lectura de medidor óptico en PA10(RX) / PA9(TX)...\n");
+    SerialDebug2.printf("[LECTURA] Intentando lectura de medidor óptico en PA3(RX / Pin 13) y PB10(TX / Pin 21)...\n");
     bool readOk = reader.readMeter(meterData, 4000);
 
     if (!readOk) {

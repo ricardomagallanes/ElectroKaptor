@@ -35,10 +35,10 @@
  */
 
 // ----------------------------------------------------------------------------
-// 1. ASIGNACIÓN OFICIAL DE PINES - PUERTO ÓPTICO (VERIFICADO)
+// 1. ASIGNACIÓN OFICIAL DE PINES - PUERTO ÓPTICO (VERIFICADO EN HARDWARE)
 // ----------------------------------------------------------------------------
-#define IR_TX_PIN   PA9  // Puerto Óptico TX
-#define IR_RX_PIN   PA10 // Puerto Óptico RX
+#define IR_TX_PIN   PB10 // Pin 21 del STM32 LQFP48 (Puerto Óptico TX)
+#define IR_RX_PIN   PA3  // Pin 13 del STM32 LQFP48 (Puerto Óptico RX)
 
 /*
  * PINES AUDITADOS Y DESCARTADOS PARA PUERTO ÓPTICO:

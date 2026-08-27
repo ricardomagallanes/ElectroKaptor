@@ -67,13 +67,15 @@ Este documento contiene la radiografía técnica completa y el relevamiento de h
 
 A partir del ensayo de comunicación serie validado en placa, la distribución oficial y probada de conexiones entre el módem LoRaWAN **RAK3172** y el MCU **STM32F103C8T6** es la siguiente:
 
-| Pin RAK3172(H) | Señal RAK | Pin STM32F103 (LQFP48) | Señal STM32 | Periférico Hardware STM32 | Función / Descripción de la Línea |
+| Pin RAK3172(H) / Periférico | Señal | Pin STM32F103 (LQFP48) | Señal STM32 | Periférico Hardware STM32 | Función / Descripción de la Línea |
 | :---: | :--- | :---: | :--- | :--- | :--- |
-| **Pin 1** | `UART2_RX` | **Pin 42** | `PB6` | `USART1_TX` (Remapped) | Transmisión serie Hardware del MCU (TX) hacia el RAK3172. |
-| **Pin 2** | `UART2_TX` | **Pin 43** | `PB7` | `USART1_RX` (Remapped) | Recepción serie Hardware del MCU (RX) desde el RAK3172. |
-| **Pin 22** | `NRST` | **Pin 45** | `PB8` | GPIO Output (Control NRST) | Control de Reset por Hardware (`NRST`) del RAK3172 (Pulso 0V ➔ 3.3V). |
-| **Pin 24** | `VDD` | **Pines 24 y 36** | `VDD_1` / `VDD_2` | 3.3V DC Power Rail | Alimentación principal de 3.3V DC del módem RAK3172. |
-| **Pin 21, 23** | `BOOT` / `GND` | **Pines 47, 8, 23, 35** | `VSS_3`, `VSSA`, `VSS_1`, `VSS_2` | Plano de Masa (GND) | Plano de masa / tierra común y modo Boot normal. |
+| **Puerto Óptico TX** | `IR_TX` | **Pin 21** | `PB10` | GPIO Output / `USART3_TX` | Transmisión hacia el LED IR del puerto óptico. |
+| **Puerto Óptico RX** | `IR_RX` | **Pin 13** | `PA3` | GPIO Input / `USART2_RX` | Recepción desde el fototransistor del puerto óptico. |
+| **RAK3172 Pin 1** | `UART2_RX` | **Pin 42** | `PB6` | `USART1_TX` (Remapped) | Transmisión serie Hardware del MCU (TX) hacia el RAK3172. |
+| **RAK3172 Pin 2** | `UART2_TX` | **Pin 43** | `PB7` | `USART1_RX` (Remapped) | Recepción serie Hardware del MCU (RX) desde el RAK3172. |
+| **RAK3172 Pin 22** | `NRST` | **Pin 45** | `PB8` | GPIO Output (Control NRST) | Control de Reset por Hardware (`NRST`) del RAK3172. |
+| **RAK3172 Pin 24** | `VDD` | **Pines 24 y 36** | `VDD_1` / `VDD_2` | 3.3V DC Power Rail | Alimentación principal de 3.3V DC del módem RAK3172. |
+| **RAK3172 Pin 21, 23** | `BOOT` / `GND` | **Pines 47, 8, 23, 35** | `VSS_3`, `VSSA`, `VSS_1`, `VSS_2` | Plano de Masa (GND) | Plano de masa / tierra común y modo Boot normal. |
 
 > [!IMPORTANT]
 > **CONFIGURACIÓN LORAWAN Y PERIFÉRICO SERIE:**
