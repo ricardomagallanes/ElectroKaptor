@@ -151,14 +151,14 @@ void loop() {
     g_optDiag.lecturaOk = readOk ? 1 : 0;
 
     if (!readOk) {
-      SerialDebug2.println("[ALERTA] No se recibió respuesta del medidor por la sonda óptica.");
-      SerialDebug2.println("[ALERTA] Se cancela la transmisión por radio. Reintentando lectura en el próximo ciclo...");
-      blinkLed(LED_ERROR_PIN, 4, 150);
-      return;
+      SerialDebug2.println("[ALERTA] Sonda óptica sin respuesta del medidor. Generando tramas de estado (Estado=2)...");
+      meterData.tipoMedidor = 2; // Trifásico DTS27
+      meterData.estado = 2;      // Sin Lectura / Alerta IR
+      blinkLed(LED_ERROR_PIN, 2, 150);
+    } else {
+      setLed(LED_ERROR_PIN, false);
+      SerialDebug2.println("[ÉXITO] Lectura óptica decodificada del medidor correctamente (Estado=0).");
     }
-
-    setLed(LED_ERROR_PIN, false);
-    SerialDebug2.println("[ÉXITO] Lectura del medidor decodificada correctamente.");
 
     // 2. Empaquetar TRAMA 1 (Mensaje 0: Telemetría Principal) mediante BitPacker
     uint8_t binPayload0[32];
