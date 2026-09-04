@@ -264,11 +264,11 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
     g_a1052Diag.state = 4; // Success
     data.lecturaValida = true;
 
-    // Si el medidor reporta energía activa válida pero no incluye registros instantáneos de tensión en la trama estándar:
-    // Asignar tensión de red (230V) a la fase conectada (Fase B)
+    // Si el medidor reporta energía activa válida pero no incluye registros instantáneos por fase en el flujo óptico:
+    // Asignar tensión nominal estándar en Fase A (igual que el equipo original)
     if (data.voltajeA == 0 && data.voltajeB == 0 && data.voltajeC == 0 && data.energiaActivaImp > 0) {
-      data.voltajeA = 0;
-      data.voltajeB = 230; // Fase B conectada
+      data.voltajeA = 230;
+      data.voltajeB = 0;
       data.voltajeC = 0;
     }
 
