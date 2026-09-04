@@ -12,25 +12,20 @@
 #include "LoRaWAN_Handler.h"
 #include "DebugSerial.h"
 
+#include "MeterAutoDetector.h"
+
 // Instancia global de manejo LoRaWAN
 LoRaWANHandler loraHandler;
 
-// Instancia estática del Lector de Medidor según MeterConfig.h
-#if SELECTED_METER_MODEL == METER_MODEL_MIDDE_DTS27
-static MiddeDTS27Reader s_meterReader(IR_RX_PIN, IR_TX_PIN);
-#elif SELECTED_METER_MODEL == METER_MODEL_ELSTER_A150
-static ElsterA150Reader s_meterReader(IR_RX_PIN, IR_TX_PIN);
-#elif SELECTED_METER_MODEL == METER_MODEL_MIDDE_DDS26D
-static MiddeDDS26DReader s_meterReader(IR_RX_PIN, IR_TX_PIN);
-#elif SELECTED_METER_MODEL == METER_MODEL_ELSTER_A1052
-static ElsterA1052Reader s_meterReader(IR_RX_PIN, IR_TX_PIN);
-#elif SELECTED_METER_MODEL == METER_MODEL_HEXING_HXE34K
-static HexingHXE34KReader s_meterReader(IR_RX_PIN, IR_TX_PIN);
-#else
-#error "Modelo de medidor no seleccionado o no soportado en MeterConfig.h"
-#endif
+// Instancias de lectores para auto-descubrimiento o selección estática
+static MiddeDTS27Reader   s_readerMiddeDTS27(IR_RX_PIN, IR_TX_PIN);
+static ElsterA150Reader   s_readerElsterA150(IR_RX_PIN, IR_TX_PIN);
+static MiddeDDS26DReader  s_readerMiddeDDS26D(IR_RX_PIN, IR_TX_PIN);
+static ElsterA1052Reader  s_readerElsterA1052(IR_RX_PIN, IR_TX_PIN);
+static HexingHXE34KReader s_readerHexingHXE34K(IR_RX_PIN, IR_TX_PIN);
 
-static IMeterReader &g_reader = s_meterReader;
+// Puntero polimórfico al lector activo fijado para la sesión
+static IMeterReader *s_pActiveReader = nullptr;
 
 // Buffers estáticos para proteger el Stack Cortex-M3 (evita desbordes y HardFaults)
 static MeterData g_meterData;
@@ -136,16 +131,43 @@ void setup() {
   blinkLed(LED_3_PIN, 2, 80);
   blinkLed(LED_MCU_PIN, 3, 80);
 
-  debugPrintf("[INFO] Medidor Activo: %s\n", g_reader.getMeterName());
+  // 2. Reconocimiento y fijación del medidor de la sesión (solo ocurre en el arranque)
+#if SELECTED_METER_MODEL == METER_MODEL_AUTO_DETECT
+  debugPrintln("\n[BOOT] Modo AUTO-DESCUBRIMIENTO activado. Reconociendo medidor óptico...");
+  uint8_t detected = MeterAutoDetector::detectMeter(IR_RX_PIN, IR_TX_PIN, 9000);
+  switch (detected) {
+    case METER_MODEL_ELSTER_A150:   s_pActiveReader = &s_readerElsterA150; break;
+    case METER_MODEL_MIDDE_DTS27:   s_pActiveReader = &s_readerMiddeDTS27; break;
+    case METER_MODEL_MIDDE_DDS26D:  s_pActiveReader = &s_readerMiddeDDS26D; break;
+    case METER_MODEL_ELSTER_A1052:  s_pActiveReader = &s_readerElsterA1052; break;
+    case METER_MODEL_HEXING_HXE34K: s_pActiveReader = &s_readerHexingHXE34K; break;
+    default:                        s_pActiveReader = &s_readerHexingHXE34K; break;
+  }
+#elif SELECTED_METER_MODEL == METER_MODEL_MIDDE_DTS27
+  s_pActiveReader = &s_readerMiddeDTS27;
+#elif SELECTED_METER_MODEL == METER_MODEL_ELSTER_A150
+  s_pActiveReader = &s_readerElsterA150;
+#elif SELECTED_METER_MODEL == METER_MODEL_MIDDE_DDS26D
+  s_pActiveReader = &s_readerMiddeDDS26D;
+#elif SELECTED_METER_MODEL == METER_MODEL_ELSTER_A1052
+  s_pActiveReader = &s_readerElsterA1052;
+#elif SELECTED_METER_MODEL == METER_MODEL_HEXING_HXE34K
+  s_pActiveReader = &s_readerHexingHXE34K;
+#else
+  #error "Modelo de medidor no seleccionado o no soportado en MeterConfig.h"
+#endif
 
-  // 2. Inicializar módem LoRaWAN RAK3172 en PB6/PB7
+  debugPrintf("\n[BOOT] 🔒 MEDIDOR FIJADO PARA LA SESIÓN: %s\n\n", s_pActiveReader->getMeterName());
+  s_pActiveReader->begin();
+
+  // 3. Inicializar módem LoRaWAN RAK3172 en PB6/PB7
   debugPrintln("[INFO] Inicializando módem RAK3172 LoRaWAN...");
   if (!loraHandler.begin()) {
     debugPrintln("[ERROR] Módem RAK3172 no responde. Verificando alimentacion/reset...");
     blinkLed(LED_3_PIN, 5, 100);
   }
 
-  // 3. Iniciar Unión OTAA a la Red TTN en Banda AU915 FSB2
+  // 4. Iniciar Unión OTAA a la Red TTN en Banda AU915 FSB2
   debugPrintln("[INFO] Iniciando autenticación OTAA Join en AU915 FSB2...");
   setLed(LED_2_PIN, false);
   if (!loraHandler.joinOTAA(8000)) {
@@ -172,8 +194,8 @@ void loop() {
     debugPrintf("==================================================\n");
 
     // 1. INTERROGACIÓN AL MEDIDOR POR EL PUERTO ÓPTICO (PA3 RX / PB10 TX)
-    debugPrintf("[LECTURA] Interrogando al medidor %s en PA3(RX) / PB10(TX)...\n", g_reader.getMeterName());
-    bool readOk = g_reader.readMeter(g_meterData, 35000);
+    debugPrintf("[LECTURA] Interrogando al medidor %s en PA3(RX) / PB10(TX)...\n", s_pActiveReader->getMeterName());
+    bool readOk = s_pActiveReader->readMeter(g_meterData, 35000);
 
     g_optDiag.magic = 0x0771C41D;
     g_optDiag.voltajeA = g_meterData.voltajeA;
@@ -187,10 +209,10 @@ void loop() {
     g_optDiag.lecturaOk = readOk ? 1 : 0;
 
     if (!readOk) {
-      debugPrintf("[ALERTA] Sonda óptica sin respuesta del medidor %s. Generando tramas de estado (Estado=2)...\n", g_reader.getMeterName());
+      debugPrintf("[ALERTA] Sonda óptica sin respuesta del medidor %s. Generando tramas de estado (Estado=2)...\n", s_pActiveReader->getMeterName());
       g_meterData.estado = 2; // Sin Lectura / Alerta IR
     } else {
-      debugPrintf("[ÉXITO] Lectura óptica decodificada del medidor %s correctamente (Estado=0).\n", g_reader.getMeterName());
+      debugPrintf("[ÉXITO] Lectura óptica decodificada del medidor %s correctamente (Estado=0).\n", s_pActiveReader->getMeterName());
     }
 
     // 2. Empaquetar TRAMA 1 (Mensaje 0: Telemetría Principal) mediante BitPacker

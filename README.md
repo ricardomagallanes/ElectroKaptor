@@ -41,24 +41,25 @@
 
 ---
 
-## ⚙️ Configuración del Medidor Activo
+## ⚙️ Configuración del Medidor Activo y Auto-Descubrimiento
 
-Para seleccionar el modelo de medidor a compilar en el firmware, se edita [`firmware/src/MeterConfig.h`](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/firmware/src/MeterConfig.h):
+El firmware cuenta con un motor de **Auto-Descubrimiento Dinámico** que se ejecuta una única vez durante el arranque (`setup()`):
+1. **Fase Pasiva:** Escucha emisiones espontáneas a 2400 baudios para reconocer medidores **Elster A1052** (ASCII OBIS) o **Elster A150** (186 bytes).
+2. **Fase Activa 300 baudios:** Emite wake-up óptico (250 ms) y consulta IEC 62056-21 Modo C (`/?!\r\n`). Discrimina entre **Hexing HXE34K** (`/HXE...`) y **MIDDE DTS27** (`/DTS...`).
+3. **Fase Activa 2400 baudios:** Consulta IEC 62056-21 para medidor monofásico **MIDDE DDS26D**.
+4. **Bloqueo Estático de Sesión:** Una vez reconocido el equipo, la configuración queda fijada para toda la sesión operativa hasta que el dispositivo se apague o reinicie.
+
+Para configurar el modo de operación, se edita [`firmware/src/MeterConfig.h`](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/firmware/src/MeterConfig.h):
 
 ```cpp
-// Para medir Hexing Trifásico HXE34K:
-#define SELECTED_METER_MODEL METER_MODEL_HEXING_HXE34K
+// MODO AUTO-DESCUBRIMIENTO DINÁMICO EN EL ARRANQUE (Predeterminado para operación en campo):
+#define SELECTED_METER_MODEL METER_MODEL_AUTO_DETECT
 
-// Para medir Elster Trifásico A1052:
+// MODO MANUAL PARA PRUEBAS ESPECÍFICAS (Omite el escaneo inicial):
+// #define SELECTED_METER_MODEL METER_MODEL_HEXING_HXE34K
 // #define SELECTED_METER_MODEL METER_MODEL_ELSTER_A1052
-
-// Para medir MIDDE Trifásico DTS27:
 // #define SELECTED_METER_MODEL METER_MODEL_MIDDE_DTS27
-
-// Para medir Elster A150 (Monofásico):
 // #define SELECTED_METER_MODEL METER_MODEL_ELSTER_A150
-
-// Para medir MIDDE Monofásico DDS26D:
 // #define SELECTED_METER_MODEL METER_MODEL_MIDDE_DDS26D
 ```
 

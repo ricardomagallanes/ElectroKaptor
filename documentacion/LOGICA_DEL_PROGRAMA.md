@@ -113,7 +113,14 @@ stateDiagram-v2
 1. **Configuración de Reloj del Sistema:** Inicialización del oscilador HSE externo de 16 MHz con PLL a 72 MHz (con fallback automático al oscilador interno HSI a 48 MHz si falla el cristal externo).
 2. **Inicialización de GPIOs y LEDs:** Configuración de `PB1`, `PB0`, `PB2`, `PC13` como salidas y apagado inicial seguro.
 3. **Inicialización de Puerto de Depuración:** UART de diagnóstico a 115200 baudios.
-4. **Arranque y Configuración del Módem RAK3172:**
+4. **Motor de Auto-Descubrimiento de Medidores (`MeterAutoDetector`):**
+   - Si `SELECTED_METER_MODEL == METER_MODEL_AUTO_DETECT`, el firmware escanea automáticamente el puerto óptico en tres fases secuenciales:
+     - *Fase 1 (Pasiva a 2400 baudios):* Detecta emisiones espontáneas de **Elster A1052** (ASCII OBIS) o **Elster A150** (186 bytes).
+     - *Fase 2 (Activa a 300 baudios):* Emite wake-up óptico de 250 ms y comando Sign-on `/?!\r\n` a 300 baudios 7E1. Discrimina **Hexing HXE34K** (`/HXE...`) de **MIDDE DTS27** (`/DTS...`).
+     - *Fase 3 (Activa a 2400 baudios):* Interroga **MIDDE DDS26D** a 2400 baudios 7E1.
+   - **Bloqueo de Sesión:** El medidor reconocido queda asignado al puntero polimórfico `s_pActiveReader` para toda la sesión operativa. La detección **no se repite** hasta que el equipo se reinicie o apague.
+   - Si `SELECTED_METER_MODEL` se configura manualmente a un modelo específico, la fase de auto-descubrimiento se omite directamente para acelerar pruebas.
+5. **Arranque y Configuración del Módem RAK3172:**
    - Habilitación del remapeo de periférico `USART1` a pines `PB6` (TX) y `PB7` (RX).
    - Pulso de Reset por hardware en pin `PB8` (`NRST`).
    - Sincronización mediante comando `AT` a 115200 baudios.
