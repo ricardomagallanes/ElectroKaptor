@@ -16,7 +16,7 @@ struct __attribute__((packed)) ElsterIRDiag {
   uint8_t  lastRawByte;
   uint8_t  pinCurrentState;
   uint8_t  state;         // 0=idle, 1=syncing, 2=reading, 3=success, 4=timeout, 5=incomplete
-  uint8_t  sampleBuffer[16];
+  uint8_t  rawPacket[186];
 };
 
 volatile ElsterIRDiag g_elsterDiag = {0xEE150150, 0, 0, 0, 0, 0, 0, {0}};
@@ -164,94 +164,119 @@ bool ElsterA150Reader::performOpticalRead(MeterData &data, unsigned long timeout
   debugPrintln("[IR-ELSTER] ¡Sincronismo detectado! Leyendo paquete de 186 bytes...");
   g_elsterDiag.state = 2; // Reading
 
-  // 2. Leer los 178 bytes restantes del frame (186 total - 8 sincronismo)
+  // 2. Leer los bytes restantes del frame (hasta 186 total)
+  uint16_t totalBytes = 8;
   for (uint16_t i = 8; i < numDatos; i++) {
     notifyOpticalActivity();
-    int b = readByteFast(10000); // 10ms timeout inter-byte
+    int b = readByteFast(25000); // 25ms timeout inter-byte
     if (b < 0) {
+      if (i >= 180) {
+        // Paquete completo: el medidor finalizó su transmisión en 180..185 bytes (contiene toda la telemetría)
+        debugPrintf("[IR-ELSTER] Paquete completado en byte %d (>=180).\n", i);
+        totalBytes = i;
+        break;
+      }
       debugPrintf("[IR-ELSTER] Error: Paquete incompleto en byte %d/186\n", i);
       g_elsterDiag.state = 5; // Incomplete
       return false;
     }
     bytesRecibidos[i] = (uint8_t)b;
-    g_elsterDiag.bytesRead = i + 1;
-    if (i < 24) {
-      g_elsterDiag.sampleBuffer[i - 8] = (uint8_t)b;
+    totalBytes = i + 1;
+    g_elsterDiag.bytesRead = totalBytes;
+  }
+
+  memcpy((void*)g_elsterDiag.rawPacket, bytesRecibidos, totalBytes < 186 ? totalBytes : 186);
+
+  g_elsterDiag.state = 3; // Success
+  debugPrintf("[IR-ELSTER] Paquete de %d bytes recibido. Decodificando nibbles...\n", totalBytes);
+
+  // 3. Swap de bytes adyacentes (según especificación oficial y código probado medicion_que_anda.ino)
+  for (uint16_t i = 8; i < totalBytes; i += 2) {
+    if (i + 1 < totalBytes) {
+      bytesOrdenados[i]     = bytesRecibidos[i + 1];
+      bytesOrdenados[i + 1] = bytesRecibidos[i];
+    } else {
+      bytesOrdenados[i]     = bytesRecibidos[i];
     }
   }
 
-  g_elsterDiag.state = 3; // Success
-  debugPrintln("[IR-ELSTER] Paquete de 186 bytes recibido completo. Decodificando nibbles...");
-
-  // 3. Reordenar el paquete según la permutación del protocolo Elster A150
-  for (int i = 0; i < 93; i++) {
-    bytesOrdenados[i * 2]     = bytesRecibidos[93 + i];
-    bytesOrdenados[i * 2 + 1] = bytesRecibidos[i];
-  }
-
   // 4. Mapear cada byte a su valor nibble real (4 bits)
-  for (int i = 0; i < numDatos; i++) {
+  for (uint16_t i = 8; i < totalBytes; i++) {
     nibbles[i] = mapByteToNibble(bytesOrdenados[i]);
   }
 
   // 5. Decodificar magnitudes eléctricas según el mapa de memoria oficial de Elster A150
-  // Energía Activa Importada (índices 10 a 3, BCD invertido)
-  uint32_t val = 0;
-  uint32_t mult = 1;
-  for (int i = 10; i >= 3; i--) {
-    val += mult * nibbles[i];
-    mult *= 10;
+  // Voltaje Fase A (índices 128 a 130, 3 dígitos BCD: ej. 220V / 230V)
+  uint16_t valV = 0;
+  if (totalBytes > 130 && nibbles[128] <= 9 && nibbles[129] <= 9 && nibbles[130] <= 9) {
+    valV = (nibbles[128] * 100) + (nibbles[129] * 10) + nibbles[130];
   }
-  data.energiaActivaImp = val; // En centésimas de kWh (0.01 kWh)
+  // Tolerancia alternativa en caso de desplazamiento de 1 nibble en variantes del firmware del medidor
+  if ((valV < 80 || valV > 300) && totalBytes > 131 && nibbles[129] <= 9 && nibbles[130] <= 9 && nibbles[131] <= 9) {
+    uint16_t altV = (nibbles[129] * 100) + (nibbles[130] * 10) + nibbles[131];
+    if (altV >= 80 && altV <= 300) {
+      valV = altV;
+    }
+  }
+  data.voltajeA = valV;
+  data.voltajeB = 0;
+  data.voltajeC = 0;
 
-  // Energía Reactiva Importada (índices 30 a 23)
-  val = 0;
-  mult = 1;
-  for (int i = 30; i >= 23; i--) {
-    val += mult * nibbles[i];
-    mult *= 10;
+  // Corriente Fase A (índices 123 a 125, 3 dígitos BCD desplazados >> 2)
+  uint32_t valI = 0;
+  if (totalBytes > 125 && nibbles[123] <= 9 && nibbles[124] <= 9 && nibbles[125] <= 9) {
+    valI = (nibbles[123] * 100) + (nibbles[124] * 10) + nibbles[125];
+    valI = valI >> 2;
   }
-  data.energiaReactivaImp = val;
-
-  // Demanda Máxima Activa (índices 98 a 93)
-  val = 0;
-  mult = 1;
-  for (int i = 98; i >= 93; i--) {
-    val += mult * nibbles[i];
-    mult *= 10;
-  }
-  data.maximaDemandaImp = val;
-
-  // Corriente Fase A (índices 126 a 122)
-  val = 0;
-  mult = 1;
-  for (int i = 126; i >= 122; i--) {
-    val += mult * nibbles[i];
-    mult *= 10;
-  }
-  data.corrienteA = (uint16_t)val; // Centésimas de Ampere (0.01 A)
+  data.corrienteA = (uint16_t)valI; // Centésimas de Ampere (0.01 A)
   data.corrienteB = 0;
   data.corrienteC = 0;
 
-  // Factor de Potencia Cosφ (índices 128 a 127)
-  val = 0;
-  mult = 1;
-  for (int i = 128; i >= 127; i--) {
-    val += mult * nibbles[i];
-    mult *= 10;
+  // Factor de Potencia Cosφ (índices 115 a 116, 2 dígitos BCD)
+  uint32_t valCos = 0;
+  if (totalBytes > 116 && nibbles[115] <= 9 && nibbles[116] <= 9) {
+    valCos = (nibbles[115] * 10) + nibbles[116];
+    if (valCos > 100) valCos = 0;
   }
-  data.cosphi = (uint8_t)val;
+  data.cosphi = (uint8_t)valCos;
 
-  // Voltaje Fase A (índices 132 a 130)
-  val = 0;
-  mult = 1;
-  for (int i = 132; i >= 130; i--) {
-    val += mult * nibbles[i];
-    mult *= 10;
+  // Energía Activa Importada (índices 62 a 69, 8 dígitos BCD)
+  uint32_t valE = 0;
+  if (totalBytes > 69) {
+    for (int i = 62; i <= 69; i++) {
+      if (nibbles[i] <= 9) {
+        valE = (valE * 10) + nibbles[i];
+      }
+    }
   }
-  data.voltajeA = (uint16_t)val; // Volts entero (ej: 232V)
-  data.voltajeB = 0;
-  data.voltajeC = 0;
+  data.energiaActivaImp = valE; // En centésimas de kWh (0.01 kWh)
+
+  // Energía Reactiva Importada (índices 77 a 80, 4 dígitos BCD)
+  uint32_t valR = 0;
+  if (totalBytes > 80) {
+    for (int i = 77; i <= 80; i++) {
+      if (nibbles[i] <= 9) {
+        valR = (valR * 10) + nibbles[i];
+      }
+    }
+  }
+  data.energiaReactivaImp = valR;
+
+  // Demanda Máxima Activa (índices 177 a 179)
+  if (totalBytes >= 180) {
+    uint32_t valD = 0;
+    for (int i = 177; i <= 179; i++) {
+      if (nibbles[i] <= 9) {
+        valD = (valD * 10) + nibbles[i];
+      }
+    }
+    data.maximaDemandaImp = valD;
+  }
+
+  if (data.voltajeA > 0 || data.energiaActivaImp > 0) {
+    data.lecturaValida = true;
+    data.estado = 0;
+  }
 
 
 

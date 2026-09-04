@@ -98,12 +98,12 @@ function decodeUplink(input) {
     data["corriente_a"] = (readBits(53, 66) / 100).toFixed(2); // 13 bits (A)
     data["corriente_b"] = (readBits(66, 79) / 100).toFixed(2); // 13 bits (A)
     data["corriente_c"] = (readBits(79, 92) / 100).toFixed(2); // 13 bits (A)
-    data["energia_activa_importada_kwh"] = (readBits(92, 119) / 10).toFixed(1); // 27 bits (kWh)
+    data["energia_activa_importada_kwh"] = (readBits(92, 119) / 100).toFixed(2); // 27 bits (kWh en centésimas)
 
     if (tipoMedidorCode === 3) {
       // Grandes Clientes
-      data["energia_activa_exportada_kwh"] = (readBits(119, 146) / 10).toFixed(1); // 27 bits
-      data["energia_reactiva_importada_kvarh"] = (readBits(146, 173) / 10).toFixed(1); // 27 bits
+      data["energia_activa_exportada_kwh"] = (readBits(119, 146) / 100).toFixed(2); // 27 bits
+      data["energia_reactiva_importada_kvarh"] = (readBits(146, 173) / 100).toFixed(2); // 27 bits
       data["temperatura_c"] = readBits(173, 180); // 7 bits (°C)
     }
 
