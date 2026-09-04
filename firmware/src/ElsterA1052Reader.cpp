@@ -100,13 +100,17 @@ int ElsterA1052Reader::readCharBitbang(unsigned long timeoutMs, uint32_t bitTime
 
 bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeoutMs) {
   data.tipoMedidor = 2; // 2 = Trifásico (Elster A1052)
-  data.bateria = 85;
+  data.bateria = 36;
   data.temperatura = 25;
   data.frecuenciaMin = 5000;
   data.frecuenciaMax = 5000;
-  data.voltajeA = 230;
-  data.voltajeB = 230;
-  data.voltajeC = 230;
+  data.voltajeA = 230; // Fase A conectada (Tensión nominal de alimentación)
+  data.voltajeB = 0;   // Fase B no conectada
+  data.voltajeC = 0;   // Fase C no conectada
+  data.corrienteA = 0;
+  data.corrienteB = 0;
+  data.corrienteC = 0;
+  data.cosphi = 0;
 
   debugPrintln("\n[IR-A1052] Iniciando lectura óptica IEC 62056-21 Modo C (Elster Trifásico A1052)...");
   debugPrintf("[IR-A1052] Pines: RX=%d, TX=%d | Velocidad: 300 baudios 7E1...\n", _rxPin, _txPin);
@@ -270,7 +274,7 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
           int p2 = line.indexOf('*', p1);
           if (p2 == -1) p2 = line.indexOf(')', p1);
           if (p1 != -1 && p2 != -1) {
-            data.energiaActivaImp = (uint32_t)round(line.substring(p1 + 1, p2).toFloat() * 100.0f);
+            data.energiaActivaImp = (uint32_t)round(line.substring(p1 + 1, p2).toFloat());
             g_a1052Diag.lastEnergyImp = data.energiaActivaImp;
           }
         }
@@ -280,7 +284,7 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
           int p2 = line.indexOf('*', p1);
           if (p2 == -1) p2 = line.indexOf(')', p1);
           if (p1 != -1 && p2 != -1) {
-            data.energiaActivaExp = (uint32_t)round(line.substring(p1 + 1, p2).toFloat() * 100.0f);
+            data.energiaActivaExp = (uint32_t)round(line.substring(p1 + 1, p2).toFloat());
           }
         }
         // G. Energía Reactiva Importada (3.8.0 / 1.0.3.8.0)
@@ -289,7 +293,7 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
           int p2 = line.indexOf('*', p1);
           if (p2 == -1) p2 = line.indexOf(')', p1);
           if (p1 != -1 && p2 != -1) {
-            data.energiaReactivaImp = (uint32_t)round(line.substring(p1 + 1, p2).toFloat() * 100.0f);
+            data.energiaReactivaImp = (uint32_t)round(line.substring(p1 + 1, p2).toFloat());
           }
         }
         // H. Energía Reactiva Exportada (4.8.0 / 1.0.4.8.0)
@@ -298,7 +302,7 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
           int p2 = line.indexOf('*', p1);
           if (p2 == -1) p2 = line.indexOf(')', p1);
           if (p1 != -1 && p2 != -1) {
-            data.energiaReactivaExp = (uint32_t)round(line.substring(p1 + 1, p2).toFloat() * 100.0f);
+            data.energiaReactivaExp = (uint32_t)round(line.substring(p1 + 1, p2).toFloat());
           }
         }
         // I. Demanda Activa Importada (1.4.0 / 1.6.0)
