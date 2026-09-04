@@ -198,6 +198,7 @@ static String sendAtCmdHardware(const char* cmd, uint32_t timeoutMs = 2000) {
     if (resp.indexOf("OK") >= 0 || resp.indexOf("AT_ERROR") >= 0 || resp.indexOf("AT_PARAM_ERROR") >= 0 || resp.indexOf("+EVT:") >= 0) {
       break;
     }
+    delay(10);
   }
 
   appendRakLog("<< ");
@@ -206,25 +207,15 @@ static String sendAtCmdHardware(const char* cmd, uint32_t timeoutMs = 2000) {
   return resp;
 }
 
-static bool sendAtCmdRobust(const char* cmd, uint32_t timeoutMs = 1500, int maxRetries = 6) {
-  for (int r = 0; r < maxRetries; r++) {
-    String resp = sendAtCmdHardware(cmd, timeoutMs);
-    if (resp.indexOf("OK") >= 0) {
-      return true;
-    }
-    if (resp.indexOf("AT_BUSY") >= 0) {
-      sendAtCmdHardware("AT+JOIN=0:0", 1000);
-      delay(600);
-    } else {
-      delay(300);
-    }
-  }
-  return false;
-}
-
-LoRaWANHandler::LoRaWANHandler() : _joined(false) {}
+LoRaWANHandler::LoRaWANHandler() : _joined(false), _failCount(0) {}
 
 bool LoRaWANHandler::begin() {
+  s_inInit = true;
+  g_initLogIdx = 0;
+  memset(g_initLog, 0, sizeof(g_initLog));
+
+  appendRakLog("[RAK INIT] Starting RAK3172 initialization...\n");
+
   // Habilitar remapeo hardware AFIO de USART1 a PB6(TX) y PB7(RX)
   __HAL_RCC_AFIO_CLK_ENABLE();
   __HAL_AFIO_REMAP_USART1_ENABLE();
@@ -246,7 +237,11 @@ bool LoRaWANHandler::begin() {
     delay(400);
   }
 
-  if (!rakReady) return false;
+  if (!rakReady) {
+    appendRakLog("[RAK ERROR] RAK3172 no respondio a comando AT\n");
+    s_inInit = false;
+    return false;
+  }
 
   // Configurar parámetros de Red y Credenciales OTAA UNA SOLA VEZ
   uint8_t devEuiBytes[] = LORAWAN_DEV_EUI;
@@ -271,38 +266,28 @@ bool LoRaWANHandler::begin() {
   }
   appKeyStr[32] = '\0';
 
-  // 1. Detener cualquier Join previo en EEPROM para desbloquear cambios de configuración
   sendAtCmdHardware("AT+JOIN=0:0", 1000); delay(400);
-  sendAtCmdHardware("AT+JOIN=0:0", 1000); delay(400);
+  sendAtCmdHardware("AT+NWM=1", 1500); delay(400);
+  sendAtCmdHardware("AT+NJM=1", 1500); delay(1000); // Aguardar banner RUI3
+  sendAtCmdHardware("AT+BAND=6", 1500); delay(500);  // Banda AU915
+  sendAtCmdHardware("AT+MASK=0002", 1000);            // Sub-banda 2 FSB2 (Canales 8-15)
+  sendAtCmdHardware("AT+DR=3", 1000);                 // DR3 (SF7 / 125kHz) -> Payload max 242 bytes en AU915
+  sendAtCmdHardware("AT+CFM=1", 1000);                // Modo Confirmado (ACK obligatorio del Gateway)
+  sendAtCmdHardware("AT+ADR=1", 1000);                // Adaptive Data Rate
 
-  // 2. Configurar modo LoRaWAN y OTAA de forma robusta
-  sendAtCmdRobust("AT+NWM=1", 1500); delay(300);
-  sendAtCmdRobust("AT+NJM=1", 1500); delay(500); // Aguardar banner RUI3
-  sendAtCmdRobust("AT+CLASS=A", 1000); delay(200); // Clase A
-  sendAtCmdRobust("AT+BAND=6", 1500); delay(300);  // Banda AU915
-  sendAtCmdRobust("AT+CHE=2", 1000); delay(200);   // Sub-banda 2 FSB2 (Canales 8-15)
-  sendAtCmdRobust("AT+MASK=0002", 1000);            // Máscara FSB2
-  sendAtCmdRobust("AT+TXP=0", 1000);                // Potencia máxima de transmisión (20 dBm)
-  sendAtCmdRobust("AT+CFM=0", 1000);                // Modo No Confirmado por defecto
-  sendAtCmdRobust("AT+ADR=1", 1000);                // Adaptive Data Rate
-
-  // 3. Grabar credenciales
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+DEVEUI=%s", devEuiStr);
-  sendAtCmdRobust(cmdBuf, 1500); delay(200);
+  sendAtCmdHardware(cmdBuf, 1000);
 
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+APPEUI=%s", appEuiStr);
-  sendAtCmdRobust(cmdBuf, 1500); delay(200);
+  sendAtCmdHardware(cmdBuf, 1000);
 
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+APPKEY=%s", appKeyStr);
-  sendAtCmdRobust(cmdBuf, 1500); delay(200);
+  sendAtCmdHardware(cmdBuf, 1000);
 
-  // 4. Consultar y verificar DevEUI grabado en el módem
-  sendAtCmdHardware("AT+DEVEUI=?", 1000);
+  // Lanzar AutoJoin permanente en RAK3172 (1: Join, 1: AutoJoin ON, 10s intervalo, 8 reintentos)
+  sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
 
-  // 5. Lanzar AutoJoin permanente en RAK3172 (1: Join, 1: AutoJoin ON, 8s intervalo, 0 = reintentos ilimitados)
-  sendAtCmdHardware("AT+JOIN=1:1:8:0", 2000);
-
-  s_inInit = false; // Finalizar captura de log de inicio
+  s_inInit = false;
   return true;
 }
 
@@ -310,13 +295,6 @@ bool LoRaWANHandler::isJoined() {
   // 1. Escuchar eventos asíncronos pendientes en el buffer serie del RAK3172
   while (SerialRAKLocal.available()) {
     String line = SerialRAKLocal.readStringUntil('\n');
-    line.trim();
-    if (line.length() > 0) {
-      appendRakLog("\n<< [EVT] ");
-      appendRakLog(line.c_str());
-      appendRakLog("\n");
-      debugPrintf("[RAK EVENT] %s\n", line.c_str());
-    }
     if (line.indexOf("+EVT:JOINED") >= 0 || line.indexOf("JOINED") >= 0) {
       _joined = true;
       _failCount = 0;
@@ -326,37 +304,30 @@ bool LoRaWANHandler::isJoined() {
     }
   }
 
-  // 2. Consultar AT+NJS=? periódicamente (cada 5 segundos)
-  static unsigned long s_lastNjsCheck = 0;
-  if (millis() - s_lastNjsCheck > 5000 || s_lastNjsCheck == 0) {
-    s_lastNjsCheck = millis();
-    String resp = sendAtCmdHardware("AT+NJS=?", 800);
-    if (resp.indexOf("AT+NJS=1") >= 0 || resp.indexOf("NJS=1") >= 0 || resp.indexOf("=1") >= 0) {
-      _joined = true;
-      _failCount = 0;
-    } else {
-      _joined = false;
-    }
+  // 2. Consultar estado del stack LoRaWAN de forma estricta
+  String resp = sendAtCmdHardware("AT+NJS=?", 800);
+  if (resp.indexOf("AT+NJS=1") >= 0 || resp.indexOf("NJS=1") >= 0 || resp.indexOf("=1") >= 0) {
+    _joined = true;
+  } else {
+    _joined = false;
   }
-
   return _joined;
 }
 
 bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
   if (isJoined()) return true;
 
-  static unsigned long s_lastJoinReq = 0;
-  if (millis() - s_lastJoinReq > 30000 || s_lastJoinReq == 0) {
-    s_lastJoinReq = millis();
-    sendAtCmdHardware("AT+JOIN=1:1:8:0", 2000);
-  }
-
+  sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
   unsigned long start = millis();
   while (millis() - start < timeoutMs) {
     if (isJoined()) return true;
-    delay(500);
+    delay(1000);
   }
   return isJoined();
+}
+
+void LoRaWANHandler::process(uint32_t ms) {
+  delay(ms);
 }
 
 #include "DebugSerial.h"
@@ -412,14 +383,8 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
       resp += c;
     }
 
-    // A. Detección de Éxito: (+EVT:TX_DONE / SEND_CONFIRMED_OK / OK para unconfirmed)
+    // A. Detección de Éxito: Esperar finalización completa de transmisión por radio (+EVT:TX_DONE / SEND_CONFIRMED_OK)
     if (resp.indexOf("SEND_CONFIRMED_OK") >= 0 || resp.indexOf("+EVT:TX_DONE") >= 0 || resp.indexOf("TX_DONE") >= 0) {
-      txSuccess = true;
-      break;
-    }
-
-    // Para modo no confirmado, "OK" inmediato confirma envío a radio
-    if (!confirmed && resp.indexOf("OK") >= 0) {
       txSuccess = true;
       break;
     }
@@ -445,10 +410,15 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
     _joined = true;
     return true;
   } else {
-    debugPrintf("[LORAWAN] Advertencia en envío de trama (CFM=%d)\n", confirmed ? 1 : 0);
+    _failCount++;
+    debugPrintf("[LORAWAN] Fallo de confirmación con Gateway (contador=%d)\n", _failCount);
+    if (_failCount >= 2) {
+      _joined = false;
+      debugPrintln("[LORAWAN] Pérdida de enlace con Gateway. Reiniciando Join OTAA en background...");
+      sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
+    }
     return false;
   }
 }
 
 #endif
-

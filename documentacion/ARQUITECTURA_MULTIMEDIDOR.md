@@ -15,7 +15,19 @@ Para permitir la integración de múltiples modelos de medidores (monofásicos, 
                            | + getMeterName()       |
                            +------------------------+
                                        ▲
-                                       │ (Herencia / Polimorfismo)
+                                       │
+                           +------------------------+
+                           |    BaseMeterReader     |
+                           | (Patrón Template M.)   |
+                           +------------------------+
+                           | + readMeter() [UNIF.]  |
+                           | # performOpticalRead()*|
+                           | # notifyOpticalActiv() |
+                           | # notifyOpticalSucc()  |
+                           | # notifyOpticalError() |
+                           +------------------------+
+                                       ▲
+                                       │ (Herencia de lógica y señalización)
                 +----------------------+----------------------+
                 │                      │                      │
 +-------------------------------+ +--------------------+ +-------------------------------+
@@ -55,20 +67,20 @@ Para permitir la integración de múltiples modelos de medidores (monofásicos, 
 
 ## 3. ➕ Guía Paso a Paso para Agregar un Nuevo Medidor
 
-### Paso 1: Crear la Clase Lectora
-Crear los archivos `src/NuevoMedidorReader.h` y `src/NuevoMedidorReader.cpp` heredando de `IMeterReader`:
+### Paso 1: Crear la Clase Lectora Heredando de `BaseMeterReader`
+Crear los archivos `src/NuevoMedidorReader.h` y `src/NuevoMedidorReader.cpp` heredando de `BaseMeterReader`. Toda la lógica de orquestación, señalización de LEDs (parpadeo en lectura, ráfaga en éxito, error en fallo) se hereda automáticamente:
 ```cpp
 #include "IMeterReader.h"
 
-class NuevoMedidorReader : public IMeterReader {
+class NuevoMedidorReader : public BaseMeterReader {
 public:
-  NuevoMedidorReader(uint8_t rxPin, uint8_t txPin);
+  NuevoMedidorReader(uint8_t rxPin, uint8_t txPin) : BaseMeterReader(rxPin, txPin) {}
   void begin(unsigned long baudRate = 0) override;
-  bool readMeter(MeterData &data, unsigned long timeoutMs = 12000) override;
   const char* getMeterName() const override { return "Nuevo Medidor"; }
 
-private:
-  uint8_t _rxPin, _txPin;
+protected:
+  // Implementar ÚNICAMENTE la captura óptica del protocolo del medidor
+  bool performOpticalRead(MeterData &data, unsigned long timeoutMs) override;
 };
 ```
 

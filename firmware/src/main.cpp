@@ -125,8 +125,10 @@ void setup() {
   debugPrintln("===   ElectroKaptor ME_LoRa_v3.6 Firmware     ===");
   debugPrintln("==================================================");
 
-  // 1. Parpadeo inicial de prueba de LEDs
-  blinkLed(LED_MCU_PIN, 2, 100);
+  // 1. Parpadeo inicial de prueba de todos los LEDs para confirmar encendido
+  blinkLed(LED_2_PIN, 2, 80);
+  blinkLed(LED_3_PIN, 2, 80);
+  blinkLed(LED_MCU_PIN, 3, 80);
 
   debugPrintf("[INFO] Medidor Activo: %s\n", g_reader.getMeterName());
 
@@ -181,8 +183,7 @@ void loop() {
 
     if (!readOk) {
       debugPrintf("[ALERTA] Sonda óptica sin respuesta del medidor %s. Generando tramas de estado (Estado=2)...\n", g_reader.getMeterName());
-      g_meterData.estado = 2;      // Sin Lectura / Alerta IR
-      blinkLed(LED_3_PIN, 4, 100); // Error en LED 3
+      g_meterData.estado = 2; // Sin Lectura / Alerta IR
     } else {
       debugPrintf("[ÉXITO] Lectura óptica decodificada del medidor %s correctamente (Estado=0).\n", g_reader.getMeterName());
     }

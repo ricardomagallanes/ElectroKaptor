@@ -11,19 +11,18 @@
  * - DLMS / COSEM sobre enlace HDLC a 9600 baud
  * - Modo espontáneo continuo
  */
-class MiddeDDS26DReader : public IMeterReader {
+class MiddeDDS26DReader : public BaseMeterReader {
 public:
   MiddeDDS26DReader(uint8_t rxPin, uint8_t txPin);
   virtual ~MiddeDDS26DReader() {}
 
-  void begin(unsigned long baudRate = 300) override;
-  bool readMeter(MeterData &data, unsigned long timeoutMs = 20000) override;
+  void begin(unsigned long baudRate = 2400) override;
   const char* getMeterName() const override { return "MIDDE DDS26D (Monofasico)"; }
 
-private:
-  uint8_t _rxPin;
-  uint8_t _txPin;
+protected:
+  bool performOpticalRead(MeterData &data, unsigned long timeoutMs) override;
 
+private:
   void sendWakeupPulse(uint16_t durationMs);
   void sendChar(char c, uint32_t bitTimeUs, bool is7E1);
   void sendString(const char* str, uint32_t bitTimeUs, bool is7E1);

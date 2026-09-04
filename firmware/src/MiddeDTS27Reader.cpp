@@ -6,7 +6,7 @@
 #define BIT_TIME_US 3333 // 300 baudios (1/300 = 3333.33 us por bit)
 
 MiddeDTS27Reader::MiddeDTS27Reader(uint8_t rxPin, uint8_t txPin) 
-  : _rxPin(rxPin), _txPin(txPin) {}
+  : BaseMeterReader(rxPin, txPin) {}
 
 void MiddeDTS27Reader::begin(unsigned long baudRate) {
   pinMode(_txPin, OUTPUT);
@@ -52,6 +52,8 @@ int MiddeDTS27Reader::readCharBitbang(unsigned long timeoutMs) {
   while (millis() - start < timeoutMs) {
     // Detección precisa de Start Bit (flanco descendente HIGH -> LOW)
     if (digitalRead(_rxPin) == LOW) {
+      notifyOpticalActivity();
+
       // Ir al 50% del bit de inicio para validar
       delayMicroseconds(BIT_TIME_US / 2);
       if (digitalRead(_rxPin) != LOW) continue; // Falsa alarma / ruido
@@ -80,11 +82,8 @@ int MiddeDTS27Reader::readCharBitbang(unsigned long timeoutMs) {
   return -1;
 }
 
-bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
-  memset(&data, 0, sizeof(MeterData));
-  data.lecturaValida = false;
+bool MiddeDTS27Reader::performOpticalRead(MeterData &data, unsigned long timeoutMs) {
   data.tipoMedidor = 2; // Trifásico (MIDDE DTS27)
-  data.estado = 0;      // Normal
 
   debugPrintln("\n[IR-IEC] Iniciando lectura IEC 62056-21 Modo C (MIDDE DTS27)...");
   debugPrintf("[IR-IEC] Pines: RX=%d, TX=%d | Velocidad: 300 baudios 7E1...\n", _rxPin, _txPin);
@@ -95,24 +94,16 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
   // Limpiar buffer de entrada
   while (readCharBitbang(50) >= 0);
 
-  // 1. Envío de comando Sign-on (/?!\r\n) con parpadeo de LED 2
-  debugPrintln("[IR-IEC] 1. Enviando comando Sign-on (/?!\r\n)...");
-  digitalWrite(LED_2_PIN, LOW); // Pulso LED 2
+  // 1. Envío de comando Sign-on (/?!\r\n)
+  debugPrintln("[IR-IEC] 1. Enviando comando Sign-on (/?!\\r\\n)...");
   sendStringBitbang("/?!\r\n");
-  digitalWrite(LED_2_PIN, HIGH);
 
-  // 2. Captura de la respuesta de identificación (/XXX5...) con parpadeo de LED 2
+  // 2. Captura de la respuesta de identificación (/XXX5...)
   unsigned long startWait = millis();
-  unsigned long lastBlink = millis();
-  bool ledState = false;
   String idResponse = "";
 
   while (millis() - startWait < 4500) {
-    if (millis() - lastBlink > 100) {
-      lastBlink = millis();
-      ledState = !ledState;
-      digitalWrite(LED_2_PIN, ledState ? LOW : HIGH); // Parpadeo intermitente durante lectura
-    }
+    notifyOpticalActivity();
     int b = readCharBitbang(idResponse.length() == 0 ? 500 : 300);
     if (b >= 0) {
       char c = (char)(b & 0x7F);
@@ -122,46 +113,28 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
       break;
     }
   }
-  digitalWrite(LED_2_PIN, HIGH); // Apagar momentáneamente
 
   if (idResponse.length() == 0) {
     debugPrintln("[IR-IEC] Alerta: Sin respuesta a Sign-on. (Verificar alineación de sonda óptica en PA3/PB10).");
-    digitalWrite(LED_2_PIN, HIGH);
-    for (int i = 0; i < 5; i++) {
-      digitalWrite(LED_3_PIN, LOW);
-      delay(100);
-      digitalWrite(LED_3_PIN, HIGH);
-      delay(100);
-    }
-    data.estado = 2; // Sin Lectura
     return false;
   }
 
   debugPrintf("[IR-IEC] ¡Identificación del Medidor Recibida!: %s\n", idResponse.c_str());
 
   // 3. Enviar ACK de solicitud de volcado de datos: ACK(0x06) + "000\r\n"
-  digitalWrite(LED_2_PIN, LOW);
-  delay(150);
-  digitalWrite(LED_2_PIN, HIGH);
   delay(150);
   debugPrintln("[IR-IEC] 2. Enviando ACK (\\x06000\\r\\n) para solicitar registros OBIS...");
   sendCharBitbang(0x06);
   sendStringBitbang("000\r\n");
 
-  // 4. Captura y parseo del bloque de registros OBIS con parpadeo de LED 2
+  // 4. Captura y parseo del bloque de registros OBIS
   debugPrintln("[IR-IEC] 3. Recibiendo y decodificando registros OBIS:");
   unsigned long obisTimeout = millis() + 12000;
   String obisBuffer = "";
   int lineCount = 0;
-  lastBlink = millis();
-  ledState = false;
 
   while (millis() < obisTimeout) {
-    if (millis() - lastBlink > 100) {
-      lastBlink = millis();
-      ledState = !ledState;
-      digitalWrite(LED_2_PIN, ledState ? LOW : HIGH); // Parpadeo visible durante volcado OBIS
-    }
+    notifyOpticalActivity();
     int b = readCharBitbang(400);
     if (b >= 0) {
       char c = (char)(b & 0x7F);
@@ -170,9 +143,9 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
       obisTimeout = millis() + 3000; // Refrescar timeout dinámico mientras sigan entrando caracteres
 
       if (c == '\n') {
-        lineCount++;
         String line = obisBuffer;
         line.trim();
+        lineCount++;
 
         // Parseo flexible de registros OBIS del medidor DTS27 (formato completo y corto)
         if (line.startsWith("1.0.32.7.0") || line.startsWith("32.7.0")) {
@@ -303,17 +276,6 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
   }
 
   if (lineCount > 0 || data.voltajeA > 0 || data.energiaActivaImp > 0 || idResponse.length() > 0) {
-    data.lecturaValida = true;
-    data.estado = 0;
-    
-    // Parpadeo rápido en LED 2 indicando lectura óptica exitosa
-    for (int i = 0; i < 8; i++) {
-      digitalWrite(LED_2_PIN, LOW);
-      delay(40);
-      digitalWrite(LED_2_PIN, HIGH);
-      delay(40);
-    }
-
     debugPrintln("\n==================================================");
     debugPrintln("=== ¡¡¡PARAMETROS DECODIFICADOS DEL MEDIDOR!!! ===");
     debugPrintln("==================================================");
@@ -333,15 +295,5 @@ bool MiddeDTS27Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
     return true;
   }
 
-  // Lectura fallida / Sin respuesta: Apagar LED 2 y parpadear LED 3 de Error
-  digitalWrite(LED_2_PIN, HIGH);
-  for (int i = 0; i < 5; i++) {
-    digitalWrite(LED_3_PIN, LOW);
-    delay(100);
-    digitalWrite(LED_3_PIN, HIGH);
-    delay(100);
-  }
-
-  data.estado = 2; // Sin Lectura
   return false;
 }

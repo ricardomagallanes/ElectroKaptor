@@ -22,7 +22,7 @@ struct __attribute__((packed)) ElsterIRDiag {
 volatile ElsterIRDiag g_elsterDiag = {0xEE150150, 0, 0, 0, 0, 0, 0, {0}};
 
 ElsterA150Reader::ElsterA150Reader(uint8_t rxPin, uint8_t txPin) 
-  : _rxPin(rxPin), _txPin(txPin) {}
+  : BaseMeterReader(rxPin, txPin) {}
 
 void ElsterA150Reader::begin(unsigned long baudRate) {
   pinMode(_rxPin, INPUT_PULLUP);
@@ -42,6 +42,7 @@ int ElsterA150Reader::readByteFast(uint32_t timeoutUs) {
   }
 
   g_elsterDiag.edgeCount++;
+  notifyOpticalActivity();
 
   // 2. Start bit detectado: Deshabilitar interrupciones para muestreo atómico de alta precisión
   noInterrupts();
@@ -93,11 +94,8 @@ uint8_t ElsterA150Reader::mapByteToNibble(uint8_t val) {
   }
 }
 
-bool ElsterA150Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
-  memset(&data, 0, sizeof(MeterData));
-  data.lecturaValida = false;
+bool ElsterA150Reader::performOpticalRead(MeterData &data, unsigned long timeoutMs) {
   data.tipoMedidor = 1; // 1 = Monofasico (Elster A150)
-  data.estado = 0;      // Normal
 
   debugPrintln("\n[IR-ELSTER] Iniciando captura óptica Elster A150 (Monofasico)...");
   debugPrintf("[IR-ELSTER] Pines: RX=%d, TX=%d | Formato: 2400 baudios 8N1 (186 bytes)\n", _rxPin, _txPin);
@@ -124,16 +122,10 @@ bool ElsterA150Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
 
   uint8_t syncIdx = 0;
   unsigned long startWait = millis();
-  unsigned long lastBlink = millis();
-  bool ledState = false;
   bool syncFound = false;
 
   while (millis() - startWait < timeoutMs) {
-    if (millis() - lastBlink > 200) {
-      lastBlink = millis();
-      ledState = !ledState;
-      digitalWrite(LED_2_PIN, ledState ? LOW : HIGH);
-    }
+    notifyOpticalActivity();
 
     // Esperar hasta 50ms por un byte entrante
     int b = readByteFast(50000);
@@ -164,117 +156,87 @@ bool ElsterA150Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
   }
 
   if (!syncFound) {
-    digitalWrite(LED_2_PIN, HIGH);
-    debugPrintln("[IR-ELSTER] Alerta: Timeout sin sincronismo del medidor Elster A150.");
+    debugPrintln("[IR-ELSTER] Timeout esperando cabecera de sincronismo Elster A150.");
     g_elsterDiag.state = 4; // Timeout
-    for (int i = 0; i < 5; i++) {
-      digitalWrite(LED_3_PIN, LOW);
-      delay(100);
-      digitalWrite(LED_3_PIN, HIGH);
-      delay(100);
-    }
-    data.tipoMedidor = 1;
-    data.estado = 2; // Sin Lectura
     return false;
   }
 
-  // IMPORTANTE: Cabecera detectada. Leer los 178 bytes restantes SIN prints ni delays para no perder sincronismo.
-  g_elsterDiag.state = 2; // Reading payload
-  uint16_t count = 8;
+  debugPrintln("[IR-ELSTER] ¡Sincronismo detectado! Leyendo paquete de 186 bytes...");
+  g_elsterDiag.state = 2; // Reading
 
+  // 2. Leer los 178 bytes restantes del frame (186 total - 8 sincronismo)
   for (uint16_t i = 8; i < numDatos; i++) {
-    int b = readByteFast(12000); // 12ms timeout por byte continuo (a 2400 baud = 4.16ms)
+    notifyOpticalActivity();
+    int b = readByteFast(10000); // 10ms timeout inter-byte
     if (b < 0) {
-      break;
+      debugPrintf("[IR-ELSTER] Error: Paquete incompleto en byte %d/186\n", i);
+      g_elsterDiag.state = 5; // Incomplete
+      return false;
     }
     bytesRecibidos[i] = (uint8_t)b;
-    count++;
-  }
-
-  g_elsterDiag.bytesRead = count;
-  digitalWrite(LED_2_PIN, HIGH);
-
-  // Copiar primeros 16 bytes a buffer de diagnóstico para análisis
-  for (int i = 0; i < 16 && i < numDatos; i++) {
-    g_elsterDiag.sampleBuffer[i] = bytesRecibidos[i];
-  }
-
-  if (count < numDatos) {
-    debugPrintf("[IR-ELSTER] Error: Paquete incompleto (recibidos %u de %u bytes).\n", count, numDatos);
-    g_elsterDiag.state = 5; // Incomplete
-    for (int i = 0; i < 5; i++) {
-      digitalWrite(LED_3_PIN, LOW);
-      delay(100);
-      digitalWrite(LED_3_PIN, HIGH);
-      delay(100);
+    g_elsterDiag.bytesRead = i + 1;
+    if (i < 24) {
+      g_elsterDiag.sampleBuffer[i - 8] = (uint8_t)b;
     }
-    data.tipoMedidor = 1;
-    data.estado = 2; // Sin Lectura
-    return false;
   }
 
   g_elsterDiag.state = 3; // Success
-  debugPrintln("[IR-ELSTER] ¡Paquete completo de 186 bytes recibido! Decodificando...");
+  debugPrintln("[IR-ELSTER] Paquete de 186 bytes recibido completo. Decodificando nibbles...");
 
-  // 1. Swap de bytes (alto/bajo) a partir del byte 8
-  for (uint8_t i = 8; i < numDatos; i += 2) {
-    bytesOrdenados[i]     = bytesRecibidos[i + 1];
-    bytesOrdenados[i + 1] = bytesRecibidos[i];
+  // 3. Reordenar el paquete según la permutación del protocolo Elster A150
+  for (int i = 0; i < 93; i++) {
+    bytesOrdenados[i * 2]     = bytesRecibidos[93 + i];
+    bytesOrdenados[i * 2 + 1] = bytesRecibidos[i];
   }
 
-  // 2. Mapeo a nibbles BCD mediante la tabla de 4-to-8 bits
-  for (int i = 8; i < numDatos; i++) {
+  // 4. Mapear cada byte a su valor nibble real (4 bits)
+  for (int i = 0; i < numDatos; i++) {
     nibbles[i] = mapByteToNibble(bytesOrdenados[i]);
   }
 
-  // 3. Extracción de registros y conversión a unidades unificadas
+  // 5. Decodificar magnitudes eléctricas según el mapa de memoria oficial de Elster A150
+  // Energía Activa Importada (índices 10 a 3, BCD invertido)
   uint32_t val = 0;
   uint32_t mult = 1;
-
-  // Máxima Demanda Importada (índices 179 a 177)
-  val = 0;
-  mult = 1;
-  for (int i = 179; i >= 177; i--) {
+  for (int i = 10; i >= 3; i--) {
     val += mult * nibbles[i];
     mult *= 10;
   }
-  data.maximaDemandaImp = val * 10; // kW * 100
+  data.energiaActivaImp = val; // En centésimas de kWh (0.01 kWh)
 
-  // Energía Activa Importada (índices 69 a 62)
+  // Energía Reactiva Importada (índices 30 a 23)
   val = 0;
   mult = 1;
-  for (int i = 69; i >= 62; i--) {
+  for (int i = 30; i >= 23; i--) {
     val += mult * nibbles[i];
     mult *= 10;
   }
-  data.energiaActivaImp = val; // kWh * 100
+  data.energiaReactivaImp = val;
 
-  // Corriente Fase A (índices 125 a 123)
+  // Demanda Máxima Activa (índices 98 a 93)
   val = 0;
   mult = 1;
-  for (int i = 125; i >= 123; i--) {
+  for (int i = 98; i >= 93; i--) {
     val += mult * nibbles[i];
     mult *= 10;
   }
-  data.corrienteA = (val >> 2) * 10; // A * 100
+  data.maximaDemandaImp = val;
+
+  // Corriente Fase A (índices 126 a 122)
+  val = 0;
+  mult = 1;
+  for (int i = 126; i >= 122; i--) {
+    val += mult * nibbles[i];
+    mult *= 10;
+  }
+  data.corrienteA = (uint16_t)val; // Centésimas de Ampere (0.01 A)
   data.corrienteB = 0;
   data.corrienteC = 0;
 
-  // Energía Reactiva Importada (índices 80 a 77)
+  // Factor de Potencia Cosφ (índices 128 a 127)
   val = 0;
   mult = 1;
-  for (int i = 80; i >= 77; i--) {
-    val += mult * nibbles[i];
-    mult *= 10;
-  }
-  data.energiaReactivaImp = (val << 10);
-  data.energiaReactivaExp = 0;
-  data.energiaActivaExp   = 0;
-
-  // Factor de Potencia (índices 116 a 115)
-  val = 0;
-  mult = 1;
-  for (int i = 116; i >= 115; i--) {
+  for (int i = 128; i >= 127; i--) {
     val += mult * nibbles[i];
     mult *= 10;
   }
@@ -297,18 +259,6 @@ bool ElsterA150Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
   data.frecuenciaMin = 5000; // 50.00 Hz * 100
   data.frecuenciaMax = 5000;
 
-  data.tipoMedidor = 1; // Monofásico
-  data.estado = 0;      // Normal
-  data.lecturaValida = true;
-
-  // Parpadeo rápido en LED 2 indicando lectura óptica exitosa
-  for (int i = 0; i < 8; i++) {
-    digitalWrite(LED_2_PIN, LOW);
-    delay(40);
-    digitalWrite(LED_2_PIN, HIGH);
-    delay(40);
-  }
-
   debugPrintln("\n==================================================");
   debugPrintln("=== ¡¡¡PARÁMETROS DECODIFICADOS ELSTER A150!!! ===");
   debugPrintln("==================================================");
@@ -323,4 +273,3 @@ bool ElsterA150Reader::readMeter(MeterData &data, unsigned long timeoutMs) {
 
   return true;
 }
-

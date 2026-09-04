@@ -14,7 +14,7 @@ uint8_t  g_dds26PinState = 1;
 char g_dds26ActiveMode[32] = "None";
 
 MiddeDDS26DReader::MiddeDDS26DReader(uint8_t rxPin, uint8_t txPin) 
-  : _rxPin(rxPin), _txPin(txPin) {}
+  : BaseMeterReader(rxPin, txPin) {}
 
 void MiddeDDS26DReader::begin(unsigned long baudRate) {
   pinMode(_txPin, OUTPUT);
@@ -81,12 +81,14 @@ void MiddeDDS26DReader::sendIecBlock(char cmd, char param, const char* body, uin
 
 bool MiddeDDS26DReader::readRegister(const char* obisCode, String &outVal, uint32_t bitTimeUs) {
   outVal = "";
+  notifyOpticalActivity();
   delay(150);
   sendIecBlock('R', '1', obisCode, bitTimeUs);
   
   unsigned long start = millis();
   String resp = "";
   while (millis() - start < 2000) {
+    notifyOpticalActivity();
     int b = readChar(bitTimeUs, true, resp.length() == 0 ? 800 : 150);
     if (b >= 0) {
       char c = (char)(b & 0x7F);
@@ -123,6 +125,7 @@ int MiddeDDS26DReader::readChar(uint32_t bitTimeUs, bool is7E1, unsigned long ti
     // Detección de Start Bit (flanco descendente HIGH -> LOW)
     if (digitalRead(_rxPin) == LOW) {
       g_dds26EdgeCount++;
+      notifyOpticalActivity();
 
       // Validar al 50% del ancho de bit
       delayMicroseconds(bitTimeUs / 2);
@@ -158,11 +161,8 @@ int MiddeDDS26DReader::readChar(uint32_t bitTimeUs, bool is7E1, unsigned long ti
   return -1;
 }
 
-bool MiddeDDS26DReader::readMeter(MeterData &data, unsigned long timeoutMs) {
-  memset(&data, 0, sizeof(MeterData));
-  data.lecturaValida = false;
+bool MiddeDDS26DReader::performOpticalRead(MeterData &data, unsigned long timeoutMs) {
   data.tipoMedidor = 1; // 1 = Monofásico (MIDDE DDS26D)
-  data.estado = 0;
 
   memset(g_dds26RawDump, 0, sizeof(g_dds26RawDump));
   g_dds26DumpIdx = 0;
@@ -182,14 +182,13 @@ bool MiddeDDS26DReader::readMeter(MeterData &data, unsigned long timeoutMs) {
 
   // 1. Envío de Sign-On /?!\r\n
   debugPrintln("[IR-DDS26D] 1. Enviando Sign-On (/?!\\r\\n) a 2400 baud 7E1...");
-  digitalWrite(LED_2_PIN, LOW);
   sendString("/?!\r\n", bitTime2400, true);
-  digitalWrite(LED_2_PIN, HIGH);
 
   // 2. Captura de la identificación (/STR3...)
   String idResponse = "";
   unsigned long startId = millis();
   while (millis() - startId < 2500) {
+    notifyOpticalActivity();
     int b = readChar(bitTime2400, true, idResponse.length() == 0 ? 500 : 150);
     if (b >= 0) {
       char c = (char)(b & 0x7F);
@@ -203,7 +202,6 @@ bool MiddeDDS26DReader::readMeter(MeterData &data, unsigned long timeoutMs) {
   if (idResponse.length() == 0) {
     debugPrintln("[IR-DDS26D] Sin respuesta al Sign-on a 2400 baud.");
     strcpy(g_dds26ActiveMode, "No Sign-on Response");
-    data.estado = 2;
     return false;
   }
 
@@ -282,7 +280,7 @@ bool MiddeDDS26DReader::readMeter(MeterData &data, unsigned long timeoutMs) {
   sendChar(0x03, bitTime2400, true);
   sendChar(0x71, bitTime2400, true); // 'B'^'0'^ETX = 0x42^0x30^0x03 = 0x71 ('q')
 
-  // 7. Decodificación de registros OBIS capturados
+  // 6. Decodificación de registros OBIS capturados
   if (g_dds26DumpIdx > 0) {
     debugPrintf("\n[IR-DDS26D] Procesando trama capturada (%u caracteres)...\n", g_dds26DumpIdx);
     char dumpCopy[1024];
@@ -345,8 +343,6 @@ bool MiddeDDS26DReader::readMeter(MeterData &data, unsigned long timeoutMs) {
   }
 
   if (data.voltajeA > 50 || data.energiaActivaImp > 0 || g_dds26DumpIdx > 20) {
-    data.lecturaValida = true;
-    data.estado = 0;
     debugPrintln("\n[IR-DDS26D] ¡Lectura completada con éxito!");
     debugPrintf("[IR-DDS26D] VA=%u V | IA=%.2f A | EA=%.2f kWh | FP=%.2f | f=%.1f Hz\n",
                 data.voltajeA, (float)data.corrienteA / 100.0f, (float)data.energiaActivaImp / 100.0f,
@@ -354,7 +350,5 @@ bool MiddeDDS26DReader::readMeter(MeterData &data, unsigned long timeoutMs) {
     return true;
   }
 
-  data.lecturaValida = false;
-  data.estado = 2; // Sin lectura completa
   return false;
 }

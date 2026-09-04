@@ -4,19 +4,18 @@
 #include <Arduino.h>
 #include "IMeterReader.h"
 
-class MiddeDTS27Reader : public IMeterReader {
+class MiddeDTS27Reader : public BaseMeterReader {
 public:
   MiddeDTS27Reader(uint8_t rxPin, uint8_t txPin);
   virtual ~MiddeDTS27Reader() {}
 
   void begin(unsigned long baudRate = 300) override;
-  bool readMeter(MeterData &data, unsigned long timeoutMs = 10000) override;
   const char* getMeterName() const override { return "Midde Trifasico DTS27"; }
 
-private:
-  uint8_t _rxPin;
-  uint8_t _txPin;
+protected:
+  bool performOpticalRead(MeterData &data, unsigned long timeoutMs) override;
 
+private:
   int readCharBitbang(unsigned long timeoutMs);
   void sendCharBitbang(char c);
   void sendStringBitbang(const char* str);
