@@ -104,9 +104,9 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
   data.temperatura = 25;
   data.frecuenciaMin = 5000;
   data.frecuenciaMax = 5000;
-  data.voltajeA = 230; // Fase A conectada (Tensión nominal de alimentación)
-  data.voltajeB = 0;   // Fase B no conectada
-  data.voltajeC = 0;   // Fase C no conectada
+  data.voltajeA = 0;
+  data.voltajeB = 0;
+  data.voltajeC = 0;
   data.corrienteA = 0;
   data.corrienteB = 0;
   data.corrienteC = 0;
@@ -126,28 +126,38 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
   // Limpiar cualquier byte residual
   while (readCharBitbang(50, BIT_TIME_US_300) >= 0);
 
-  // 1. Envío de comando Sign-on IEC 62056-21 (/?!\r\n)
-  debugPrintln("[IR-A1052] 1. Enviando comando Sign-on (/?!\\r\\n)...");
-  sendStringBitbang("/?!\r\n", BIT_TIME_US_300);
-
-  // 2. Captura de la respuesta de identificación (/ELS... o /ABB...)
-  unsigned long startWait = millis();
+  // 1. Envío de comando Sign-on IEC 62056-21 (/?!\r\n) con hasta 2 reintentos
   String idResponse = "";
+  for (int attempt = 0; attempt < 2; attempt++) {
+    debugPrintf("[IR-A1052] Intento %d: Enviando comando Sign-on (/?!\\r\\n)...\n", attempt + 1);
+    while (readCharBitbang(50, BIT_TIME_US_300) >= 0); // Limpiar buffer
+    sendStringBitbang("/?!\r\n", BIT_TIME_US_300);
 
-  while (millis() - startWait < 4500) {
-    notifyOpticalActivity();
-    int b = readCharBitbang(idResponse.length() == 0 ? 500 : 300, BIT_TIME_US_300);
-    if (b >= 0) {
-      char c = (char)(b & 0x7F);
-      idResponse += c;
-      if (c == '\n') break;
-    } else if (idResponse.length() > 0) {
+    unsigned long startWait = millis();
+    idResponse = "";
+
+    while (millis() - startWait < 4500) {
+      notifyOpticalActivity();
+      int b = readCharBitbang(idResponse.length() == 0 ? 600 : 350, BIT_TIME_US_300);
+      if (b >= 0) {
+        char c = (char)(b & 0x7F);
+        idResponse += c;
+        if (c == '\n') break;
+      } else if (idResponse.length() > 0) {
+        break;
+      }
+    }
+
+    if (idResponse.length() > 0) {
       break;
     }
+    delay(1000);
   }
 
-  if (idResponse.length() == 0 || idResponse.indexOf('/') == -1) {
-    debugPrintln("[IR-A1052] Alerta: Sin respuesta válida a Sign-on. (Verificar alineación de sonda óptica en PA3/PB10).");
+  snprintf((char*)g_a1052Diag.rawDump, sizeof(g_a1052Diag.rawDump), "ID: %s", idResponse.c_str());
+
+  if (idResponse.length() == 0) {
+    debugPrintln("[IR-A1052] Alerta: Sin respuesta a Sign-on. (Verificar alineación de sonda óptica en PA3/PB10).");
     g_a1052Diag.state = 5; // Error
     return false;
   }
@@ -155,7 +165,7 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
   debugPrintf("[IR-A1052] ¡Identificación del Medidor Recibida!: %s\n", idResponse.c_str());
 
   // 3. Enviar ACK de solicitud de volcado de datos: ACK(0x06) + "000\r\n"
-  delay(150);
+  delay(200);
   debugPrintln("[IR-A1052] 2. Enviando ACK (\\x06000\\r\\n) para solicitar registros OBIS...");
   sendCharBitbang(0x06, BIT_TIME_US_300);
   sendStringBitbang("000\r\n", BIT_TIME_US_300);
@@ -197,8 +207,8 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
         g_a1052Diag.lineCount = lineCount;
 
         // Parseo de registros OBIS del medidor Elster A1052
-        // A. Tensiones por Fase
-        if (line.startsWith("32.5.0") || line.startsWith("32.7.0") || line.startsWith("1.0.32.7.0") || line.startsWith("32.5(") || line.startsWith("32.7(")) {
+        // A. Tensiones por Fase (L1=32.x, L2=52.x, L3=72.x)
+        if (line.startsWith("32.5") || line.startsWith("32.7") || line.startsWith("1.0.32.7") || line.startsWith("1.0.32.5") || line.startsWith("32.25")) {
           int p1 = line.indexOf('(');
           int p2 = line.indexOf('*', p1);
           if (p2 == -1) p2 = line.indexOf(')', p1);
@@ -207,7 +217,7 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
             g_a1052Diag.lastVoltageA = data.voltajeA;
           }
         }
-        else if (line.startsWith("52.5.0") || line.startsWith("52.7.0") || line.startsWith("1.0.52.7.0") || line.startsWith("52.5(") || line.startsWith("52.7(")) {
+        else if (line.startsWith("52.5") || line.startsWith("52.7") || line.startsWith("1.0.52.7") || line.startsWith("1.0.52.5") || line.startsWith("52.25")) {
           int p1 = line.indexOf('(');
           int p2 = line.indexOf('*', p1);
           if (p2 == -1) p2 = line.indexOf(')', p1);
@@ -216,7 +226,7 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
             g_a1052Diag.lastVoltageB = data.voltajeB;
           }
         }
-        else if (line.startsWith("72.5.0") || line.startsWith("72.7.0") || line.startsWith("1.0.72.7.0") || line.startsWith("72.5(") || line.startsWith("72.7(")) {
+        else if (line.startsWith("72.5") || line.startsWith("72.7") || line.startsWith("1.0.72.7") || line.startsWith("1.0.72.5") || line.startsWith("72.25")) {
           int p1 = line.indexOf('(');
           int p2 = line.indexOf('*', p1);
           if (p2 == -1) p2 = line.indexOf(')', p1);
@@ -225,8 +235,8 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
             g_a1052Diag.lastVoltageC = data.voltajeC;
           }
         }
-        // B. Corrientes por Fase
-        else if (line.startsWith("31.5.0") || line.startsWith("31.7.0") || line.startsWith("1.0.31.7.0") || line.startsWith("31.5(") || line.startsWith("31.7(")) {
+        // B. Corrientes por Fase (L1=31.x, L2=51.x, L3=71.x)
+        else if (line.startsWith("31.5") || line.startsWith("31.7") || line.startsWith("1.0.31.7") || line.startsWith("1.0.31.5") || line.startsWith("31.25")) {
           int p1 = line.indexOf('(');
           int p2 = line.indexOf('*', p1);
           if (p2 == -1) p2 = line.indexOf(')', p1);
@@ -234,7 +244,7 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
             data.corrienteA = (uint16_t)round(line.substring(p1 + 1, p2).toFloat() * 100.0f);
           }
         }
-        else if (line.startsWith("51.5.0") || line.startsWith("51.7.0") || line.startsWith("1.0.51.7.0") || line.startsWith("51.5(") || line.startsWith("51.7(")) {
+        else if (line.startsWith("51.5") || line.startsWith("51.7") || line.startsWith("1.0.51.7") || line.startsWith("1.0.51.5") || line.startsWith("51.25")) {
           int p1 = line.indexOf('(');
           int p2 = line.indexOf('*', p1);
           if (p2 == -1) p2 = line.indexOf(')', p1);
@@ -242,7 +252,7 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
             data.corrienteB = (uint16_t)round(line.substring(p1 + 1, p2).toFloat() * 100.0f);
           }
         }
-        else if (line.startsWith("71.5.0") || line.startsWith("71.7.0") || line.startsWith("1.0.71.7.0") || line.startsWith("71.5(") || line.startsWith("71.7(")) {
+        else if (line.startsWith("71.5") || line.startsWith("71.7") || line.startsWith("1.0.71.7") || line.startsWith("1.0.71.5") || line.startsWith("71.25")) {
           int p1 = line.indexOf('(');
           int p2 = line.indexOf('*', p1);
           if (p2 == -1) p2 = line.indexOf(')', p1);
@@ -251,7 +261,7 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
           }
         }
         // C. Factor de Potencia Cos φ
-        else if (line.startsWith("13.5.0") || line.startsWith("13.7.0") || line.startsWith("33.7.0") || line.startsWith("13.5(") || line.startsWith("13.7(")) {
+        else if (line.startsWith("13.5") || line.startsWith("13.7") || line.startsWith("33.7") || line.startsWith("1.0.13.7")) {
           int p1 = line.indexOf('(');
           int p2 = line.indexOf(')', p1);
           if (p1 != -1 && p2 != -1) {
@@ -259,13 +269,12 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
           }
         }
         // D. Frecuencia de Red
-        else if (line.startsWith("14.5.0") || line.startsWith("14.7.0") || line.startsWith("14.5(") || line.startsWith("14.7(")) {
+        else if (line.startsWith("14.5") || line.startsWith("14.7") || line.startsWith("1.0.14.7")) {
           int p1 = line.indexOf('(');
           int p2 = line.indexOf('*', p1);
           if (p2 == -1) p2 = line.indexOf(')', p1);
           if (p1 != -1 && p2 != -1) {
             data.frecuenciaMin = (uint16_t)round(line.substring(p1 + 1, p2).toFloat() * 100.0f);
-            data.frecuenciaMax = data.frecuenciaMin;
           }
         }
         // E. Energía Activa Importada (1.8.0 / 1.0.1.8.0 / 1.8.0.1 / 1.8.0*)
@@ -325,11 +334,6 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
         }
 
         obisBuffer = "";
-
-        if (lineCount >= 11) {
-          debugPrintln("\n[IR-A1052] Conjunto completo de registros OBIS recibido. Finalizando.");
-          break;
-        }
       }
 
       if (c == '!' || c == 0x03) { // Fin de bloque IEC 62056-21
@@ -349,10 +353,7 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
     }
   }
 
-  if (lineCount > 0 || data.voltajeA > 0 || data.energiaActivaImp > 0 || idResponse.length() > 0) {
-    if (data.voltajeA == 0 && data.energiaActivaImp > 0) {
-      data.voltajeA = 231; // Tensión nominal Fase A
-    }
+  if (lineCount > 0 || data.voltajeA > 0 || data.voltajeB > 0 || data.voltajeC > 0 || data.energiaActivaImp > 0 || idResponse.length() > 0) {
     g_a1052Diag.state = 4; // Success
     data.lecturaValida = true;
     debugPrintln("\n==================================================");
@@ -367,8 +368,8 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
     debugPrintf(" • Corriente Fase C         : %.2f A\n", data.corrienteC / 100.0f);
     debugPrintf(" • Factor de Potencia (Cosφ): %.2f\n", data.cosphi / 100.0f);
     debugPrintf(" • Frecuencia Red           : %.2f Hz\n", data.frecuenciaMin / 100.0f);
-    debugPrintf(" • Energía Activa Importada : %.2f kWh\n", data.energiaActivaImp / 100.0f);
-    debugPrintf(" • Energía Activa Exportada : %.2f kWh\n", data.energiaActivaExp / 100.0f);
+    debugPrintf(" • Energía Activa Importada : %lu kWh\n", (unsigned long)data.energiaActivaImp);
+    debugPrintf(" • Energía Activa Exportada : %lu kWh\n", (unsigned long)data.energiaActivaExp);
     debugPrintf(" • Demanda Máxima Activa    : %.2f kW\n", data.maximaDemandaImp / 100.0f);
     debugPrintln("==================================================");
     return true;
