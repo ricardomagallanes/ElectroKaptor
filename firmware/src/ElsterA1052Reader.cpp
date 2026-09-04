@@ -114,10 +114,7 @@ int ElsterA1052Reader::readCharBitbang(unsigned long timeoutMs, uint32_t bitTime
 
 bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeoutMs) {
   data.tipoMedidor = 2; // Trifásico (Elster A1052)
-  data.bateria = 36;
-  data.temperatura = 25;
-  data.frecuenciaMin = 5000;
-  data.frecuenciaMax = 5000;
+
   data.voltajeA = 0;
   data.voltajeB = 0;
   data.voltajeC = 0;

@@ -253,11 +253,7 @@ bool ElsterA150Reader::performOpticalRead(MeterData &data, unsigned long timeout
   data.voltajeB = 0;
   data.voltajeC = 0;
 
-  // Parámetros auxiliares
-  data.bateria = 90;
-  data.temperatura = 25;
-  data.frecuenciaMin = 5000; // 50.00 Hz * 100
-  data.frecuenciaMax = 5000;
+
 
   debugPrintln("\n==================================================");
   debugPrintln("=== ¡¡¡PARÁMETROS DECODIFICADOS ELSTER A150!!! ===");
