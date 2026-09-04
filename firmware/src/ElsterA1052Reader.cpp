@@ -182,7 +182,7 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
         // Bit 0 (0x1): Fase A activa (230V)
         // Bit 1 (0x2): Fase B activa (230V)
         // Bit 2 (0x4): Fase C activa (230V)
-        if (line.startsWith("0.2.1(") || line.indexOf(".2.1(") >= 0) {
+        if (line.indexOf("2.1(") >= 0 || line.indexOf("0.2.1") >= 0 || line.indexOf("C.7.") >= 0) {
           int p1 = line.indexOf('(');
           if (p1 != -1 && (p1 + 1) < (int)line.length()) {
             char c0 = line.charAt(p1 + 1);
@@ -200,15 +200,18 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
         // A. Tensiones analógicas directas por Fase (si estuvieran configuradas en el medidor)
         if (line.indexOf("32.7") >= 0 || line.indexOf("32.5") >= 0 || line.indexOf("32.25") >= 0 || line.indexOf("U1(") >= 0 || line.indexOf("V1(") >= 0 || line.indexOf("VA(") >= 0 || line.indexOf("UL1(") >= 0) {
           data.voltajeA = (uint16_t)round(extractObisValue(line));
-          g_a1052Diag.lastVoltageA = data.voltajeA;
         }
         else if (line.indexOf("52.7") >= 0 || line.indexOf("52.5") >= 0 || line.indexOf("52.25") >= 0 || line.indexOf("U2(") >= 0 || line.indexOf("V2(") >= 0 || line.indexOf("VB(") >= 0 || line.indexOf("UL2(") >= 0) {
           data.voltajeB = (uint16_t)round(extractObisValue(line));
-          g_a1052Diag.lastVoltageB = data.voltajeB;
         }
         else if (line.indexOf("72.7") >= 0 || line.indexOf("72.5") >= 0 || line.indexOf("72.25") >= 0 || line.indexOf("U3(") >= 0 || line.indexOf("V3(") >= 0 || line.indexOf("VC(") >= 0 || line.indexOf("UL3(") >= 0) {
           data.voltajeC = (uint16_t)round(extractObisValue(line));
-          g_a1052Diag.lastVoltageC = data.voltajeC;
+        }
+        // Canales de Fase 3 (L3): 3.8.0, 3.2.0, 3.4.0, 3.6.0 (Energía y demandas activas/reactivas de fase 3)
+        else if ((line.indexOf("3.8.0") >= 0 || line.indexOf("3.2.0") >= 0 || line.indexOf("3.6.0") >= 0) && extractObisValue(line) > 0.0f) {
+          if (data.voltajeC == 0 && data.voltajeA == 0 && data.voltajeB == 0) {
+            data.voltajeC = 230;
+          }
         }
         // B. Corrientes por Fase (L1/A = 31.x, L2/B = 51.x, L3/C = 71.x)
         else if (line.indexOf("31.7") >= 0 || line.indexOf("31.5") >= 0 || line.indexOf("I1(") >= 0 || line.indexOf("IA(") >= 0 || line.indexOf("IL1(") >= 0) {
