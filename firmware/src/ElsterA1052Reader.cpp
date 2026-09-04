@@ -53,10 +53,10 @@ int ElsterA1052Reader::readByteFast2400(uint32_t timeoutUs) {
   uint32_t t0 = micros();
   uint8_t rawVal = 0;
 
-  // Muestrear los 8 slots de bits a 2400 baudios (417 us por slot)
+  // Muestrear los 8 slots de bits a 2400 baudios (417 us por slot, saltando el Start Bit)
   for (int i = 0; i < 8; i++) {
-    uint32_t slotStart = t0 + (i * BIT_TIME_US_2400) + 180;
-    uint32_t slotEnd   = t0 + ((i + 1) * BIT_TIME_US_2400) + 180;
+    uint32_t slotStart = t0 + ((i + 1) * BIT_TIME_US_2400) + 40;
+    uint32_t slotEnd   = t0 + ((i + 2) * BIT_TIME_US_2400) - 20;
 
     while ((int32_t)(micros() - slotStart) < 0);
 
@@ -124,9 +124,63 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
   data.cosphi = 0;
   data.lecturaValida = false;
 
-  debugPrintln("\n[IR-A1052] Capturando ráfaga óptica OBIS Elster Trifásico A1052 (2400 baudios)...");
-  debugPrintf("[IR-A1052] Pines: RX=%d, TX=%d\n", _rxPin, _txPin);
+  // 1. Intento de Interrogación Activa IEC 62056-21 Modo C a 300 baudios (7E1)
+  debugPrintln("\n[IR-A1052] 1. Probando Interrogación Activa IEC 62056-21 a 300 baudios (/?!\\r\\n)...");
+  begin(300);
+  delay(150);
+  while (readCharBitbang(50, 3333) >= 0); // Limpiar buffer
+  sendStringBitbang("/?!\r\n", 3333);
 
+  String idResponse = "";
+  unsigned long startId = millis();
+  while (millis() - startId < 2000) {
+    notifyOpticalActivity();
+    int b = readCharBitbang(idResponse.length() == 0 ? 300 : 150, 3333);
+    if (b >= 0) {
+      char c = (char)(b & 0x7F);
+      idResponse += c;
+      if (c == '\n') break;
+    } else if (idResponse.length() > 0) {
+      break;
+    }
+  }
+
+  bool activeHandshakeOk = false;
+  if (idResponse.length() > 0 && idResponse.indexOf('/') >= 0) {
+    debugPrintf("[IR-A1052] ¡Respuesta Activa IEC 62056-21 Recibida!: %s\n", idResponse.c_str());
+    delay(150);
+    sendCharBitbang(0x06, 3333); // ACK
+    sendStringBitbang("000\r\n", 3333); // Modo 0: Lectura completa de registros
+    activeHandshakeOk = true;
+  }
+
+  // 2. Si no hubo respuesta a 300 baudios, intentar a 2400 baudios
+  if (!activeHandshakeOk) {
+    debugPrintln("[IR-A1052] 2. Probando Interrogación Activa a 2400 baudios...");
+    begin(2400);
+    delay(100);
+    sendStringBitbang("/?!\r\n", 417);
+    unsigned long startId2400 = millis();
+    while (millis() - startId2400 < 800) {
+      notifyOpticalActivity();
+      int b = readCharBitbang(150, 417);
+      if (b >= 0) {
+        char c = (char)(b & 0x7F);
+        idResponse += c;
+        if (c == '\n') break;
+      }
+    }
+    if (idResponse.indexOf('/') >= 0) {
+      debugPrintf("[IR-A1052] ¡Respuesta Activa a 2400 baudios Recibida!: %s\n", idResponse.c_str());
+      delay(100);
+      sendCharBitbang(0x06, 417);
+      sendStringBitbang("000\r\n", 417);
+      activeHandshakeOk = true;
+    }
+  }
+
+  // 3. Captura y Procesamiento de la Ráfaga Óptica (Activa o Pasiva 2400 baud)
+  debugPrintln("[IR-A1052] Capturando flujo óptico de registros OBIS...");
   begin(2400);
 
   g_a1052Diag.magic = 0xEE105200;
