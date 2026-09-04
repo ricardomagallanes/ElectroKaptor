@@ -211,7 +211,33 @@ void loop() {
     }
     debugPrintln();
 
-    // 4. Verificar estado de Red LoRaWAN y transmitir ambas tramas al servidor TTN
+    // 4. Adaptar formato de transmisión (ASCII Hex vs Binario Puro) según configuración
+    uint8_t txPayload0[64];
+    uint8_t txLen0 = 0;
+    uint8_t txPayload1[64];
+    uint8_t txLen1 = 0;
+
+#if (SELECTED_PAYLOAD_FORMAT == PAYLOAD_FORMAT_ASCII_HEX)
+    const char hexCharsUpper[] = "0123456789ABCDEF";
+    for (uint8_t i = 0; i < payloadLen0; i++) {
+      txPayload0[i * 2]     = (uint8_t)hexCharsUpper[(g_binPayload0[i] >> 4) & 0x0F];
+      txPayload0[i * 2 + 1] = (uint8_t)hexCharsUpper[g_binPayload0[i] & 0x0F];
+    }
+    txLen0 = payloadLen0 * 2;
+
+    for (uint8_t i = 0; i < payloadLen1; i++) {
+      txPayload1[i * 2]     = (uint8_t)hexCharsUpper[(g_binPayload1[i] >> 4) & 0x0F];
+      txPayload1[i * 2 + 1] = (uint8_t)hexCharsUpper[g_binPayload1[i] & 0x0F];
+    }
+    txLen1 = payloadLen1 * 2;
+#else
+    memcpy(txPayload0, g_binPayload0, payloadLen0);
+    txLen0 = payloadLen0;
+    memcpy(txPayload1, g_binPayload1, payloadLen1);
+    txLen1 = payloadLen1;
+#endif
+
+    // 5. Verificar estado de Red LoRaWAN y transmitir ambas tramas al servidor TTN
     if (loraHandler.isJoined()) {
       debugPrintln("[LORAWAN] ¡Conectado a TTN! Transmitiendo Tramas...");
       
@@ -219,7 +245,7 @@ void loop() {
       setLed(LED_2_PIN, true);
 
       debugPrintln("[LORAWAN] Transmitiendo Trama 1 (Mensaje 0)...");
-      bool tx0 = loraHandler.sendPayload(g_binPayload0, payloadLen0, 10, false); // Trama 1 (Unconfirmed)
+      bool tx0 = loraHandler.sendPayload(txPayload0, txLen0, 10, false); // Trama 1 (Unconfirmed)
 
       if (tx0) {
         debugPrintln("[ÉXITO] Trama 1 (Mensaje 0) emitida al servidor TTN.");
@@ -227,11 +253,11 @@ void loop() {
         debugPrintln("[ERROR] Falló la emisión de Trama 1.");
       }
 
-      // Pausa entre tramas para cumplir con el ciclo de trabajo LoRa
-      delay(2000);
+      // Pausa entre tramas para cumplir con el ciclo de trabajo LoRa (RX1 + RX2 completos)
+      delay(5000);
 
       debugPrintln("[LORAWAN] Transmitiendo Trama 2 (Mensaje 1)...");
-      bool tx1 = loraHandler.sendPayload(g_binPayload1, payloadLen1, 10, false); // Trama 2 (Unconfirmed)
+      bool tx1 = loraHandler.sendPayload(txPayload1, txLen1, 10, false); // Trama 2 (Unconfirmed)
 
       if (tx1) {
         debugPrintln("[ÉXITO] Trama 2 (Mensaje 1) emitida al servidor TTN.");

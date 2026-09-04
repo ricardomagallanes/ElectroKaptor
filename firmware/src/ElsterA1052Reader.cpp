@@ -38,7 +38,6 @@ void ElsterA1052Reader::sendCharBitbang(char c, uint32_t bitTimeUs) {
     if (val & (1 << i)) parity ^= 1;
   }
 
-  noInterrupts();
   // Start bit: LOW
   digitalWrite(_txPin, LOW);
   delayMicroseconds(bitTimeUs);
@@ -55,8 +54,6 @@ void ElsterA1052Reader::sendCharBitbang(char c, uint32_t bitTimeUs) {
 
   // Stop bit: HIGH
   digitalWrite(_txPin, HIGH);
-  interrupts();
-
   delayMicroseconds(bitTimeUs * 2); // 2 stop bits para robustez
 }
 
@@ -74,11 +71,10 @@ int ElsterA1052Reader::readCharBitbang(unsigned long timeoutMs, uint32_t bitTime
     if (digitalRead(_rxPin) == LOW) {
       notifyOpticalActivity();
 
-      // Muestreo al centro del bit de inicio para filtrar ruido
+      // Muestreo al 50% del bit de inicio para filtrar transitorios
       delayMicroseconds(bitTimeUs / 2);
       if (digitalRead(_rxPin) != LOW) continue;
 
-      noInterrupts();
       uint8_t val = 0;
       for (int i = 0; i < 7; i++) {
         delayMicroseconds(bitTimeUs);
@@ -90,7 +86,6 @@ int ElsterA1052Reader::readCharBitbang(unsigned long timeoutMs, uint32_t bitTime
       // Saltar bit de paridad y avanzar al bit de parada
       delayMicroseconds(bitTimeUs);
       delayMicroseconds(bitTimeUs);
-      interrupts();
 
       // Aguardar línea en reposo (HIGH)
       unsigned long waitStop = micros();
@@ -109,6 +104,9 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
   data.temperatura = 25;
   data.frecuenciaMin = 5000;
   data.frecuenciaMax = 5000;
+  data.voltajeA = 230;
+  data.voltajeB = 230;
+  data.voltajeC = 230;
 
   debugPrintln("\n[IR-A1052] Iniciando lectura óptica IEC 62056-21 Modo C (Elster Trifásico A1052)...");
   debugPrintf("[IR-A1052] Pines: RX=%d, TX=%d | Velocidad: 300 baudios 7E1...\n", _rxPin, _txPin);
@@ -144,8 +142,8 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
     }
   }
 
-  if (idResponse.length() == 0) {
-    debugPrintln("[IR-A1052] Alerta: Sin respuesta a Sign-on. (Verificar alineación de sonda óptica en PA3/PB10).");
+  if (idResponse.length() == 0 || idResponse.indexOf('/') == -1) {
+    debugPrintln("[IR-A1052] Alerta: Sin respuesta válida a Sign-on. (Verificar alineación de sonda óptica en PA3/PB10).");
     g_a1052Diag.state = 5; // Error
     return false;
   }
@@ -162,13 +160,15 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
 
   // 4. Captura y parseo del bloque de registros OBIS
   debugPrintln("[IR-A1052] 3. Recibiendo y decodificando registros OBIS:");
-  unsigned long obisTimeout = millis() + timeoutMs;
+  unsigned long startObis = millis();
+  unsigned long hardDeadline = millis() + timeoutMs;
+  unsigned long lastCharTime = millis();
   String obisBuffer = "";
   int lineCount = 0;
 
-  while (millis() < obisTimeout) {
+  while (millis() < hardDeadline) {
     notifyOpticalActivity();
-    int b = readCharBitbang(600, BIT_TIME_US_300);
+    int b = readCharBitbang(400, BIT_TIME_US_300);
     if (b >= 0) {
       char c = (char)(b & 0x7F);
       debugPrintChar(c);
@@ -178,7 +178,10 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
         g_a1052Diag.rawDump[g_a1052Diag.bytesRead + 1] = '\0';
       }
       g_a1052Diag.bytesRead++;
-      obisTimeout = millis() + 3000; // Timeout dinámico: 3s sin datos indica fin de volcado
+
+      if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '.' || c == '(' || c == ')' || c == '*') {
+        lastCharTime = millis();
+      }
 
       if (c == '\n') {
         String line = obisBuffer;
@@ -298,8 +301,8 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
             data.energiaReactivaExp = (uint32_t)round(line.substring(p1 + 1, p2).toFloat() * 100.0f);
           }
         }
-        // I. Máxima Demanda Importada (1.6.0 / 1.0.1.6.0)
-        else if (line.startsWith("1.6.0") || line.startsWith("1.0.1.6.0") || line.startsWith("1.6.0(")) {
+        // I. Demanda Activa Importada (1.4.0 / 1.6.0)
+        else if (line.startsWith("1.4.0") || line.startsWith("1.6.0") || line.startsWith("1.0.1.6.0") || line.startsWith("1.6.0(") || line.startsWith("1.4.0(")) {
           int p1 = line.indexOf('(');
           int p2 = line.indexOf('*', p1);
           if (p2 == -1) p2 = line.indexOf(')', p1);
@@ -307,14 +310,38 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
             data.maximaDemandaImp = (uint32_t)round(line.substring(p1 + 1, p2).toFloat() * 100.0f);
           }
         }
+        // J. Demanda Activa Exportada (2.4.0 / 2.6.0)
+        else if (line.startsWith("2.4.0") || line.startsWith("2.6.0") || line.startsWith("2.4.0(")) {
+          int p1 = line.indexOf('(');
+          int p2 = line.indexOf('*', p1);
+          if (p2 == -1) p2 = line.indexOf(')', p1);
+          if (p1 != -1 && p2 != -1) {
+            data.maximaDemandaExp = (uint32_t)round(line.substring(p1 + 1, p2).toFloat() * 100.0f);
+          }
+        }
 
         obisBuffer = "";
+
+        if (lineCount >= 11) {
+          debugPrintln("\n[IR-A1052] Conjunto completo de registros OBIS recibido. Finalizando.");
+          break;
+        }
       }
 
       if (c == '!' || c == 0x03) { // Fin de bloque IEC 62056-21
         debugPrintln("\n[IR-A1052] Fin de bloque detectado (! / ETX).");
         break;
       }
+    }
+
+    if (lineCount == 0 && (millis() - startObis > 5000)) {
+      debugPrintln("\n[IR-A1052] Sin líneas OBIS válidas recibidas.");
+      break;
+    }
+
+    if (lineCount >= 3 && (millis() - lastCharTime > 1500)) {
+      debugPrintln("\n[IR-A1052] Fin de flujo OBIS por silencio de línea.");
+      break;
     }
   }
 

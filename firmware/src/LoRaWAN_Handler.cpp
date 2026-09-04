@@ -117,7 +117,7 @@ bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
   return false;
 }
 
-bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t port) {
+bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t port, bool confirmed) {
   if (!isJoined()) {
     Serial.println("[LoRaWAN] Alerta: Intentando enviar payload sin estar unido a la red. Reintentando Join...");
     if (!joinOTAA(15000)) {
@@ -178,7 +178,13 @@ void appendRakLog(const char* txt) {
 }
 
 static String sendAtCmdHardware(const char* cmd, uint32_t timeoutMs = 2000) {
-  while (SerialRAKLocal.available()) SerialRAKLocal.read(); // Clear RX buffer
+  // Capturar cualquier evento pendiente (+EVT:JOINED, etc.) antes de vaciar buffer
+  while (SerialRAKLocal.available()) {
+    String pending = SerialRAKLocal.readStringUntil('\n');
+    appendRakLog("\n[EVT-PRE] ");
+    appendRakLog(pending.c_str());
+    appendRakLog("\n");
+  }
   
   appendRakLog("\n>> ");
   appendRakLog(cmd);
@@ -272,7 +278,7 @@ bool LoRaWANHandler::begin() {
   sendAtCmdHardware("AT+BAND=6", 1500); delay(500);  // Banda AU915
   sendAtCmdHardware("AT+MASK=0002", 1000);            // Sub-banda 2 FSB2 (Canales 8-15)
   sendAtCmdHardware("AT+DR=3", 1000);                 // DR3 (SF7 / 125kHz) -> Payload max 242 bytes en AU915
-  sendAtCmdHardware("AT+CFM=1", 1000);                // Modo Confirmado (ACK obligatorio del Gateway)
+  sendAtCmdHardware("AT+CFM=0", 1000);                // Modo No Confirmado por defecto
   sendAtCmdHardware("AT+ADR=1", 1000);                // Adaptive Data Rate
 
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+DEVEUI=%s", devEuiStr);
@@ -295,6 +301,9 @@ bool LoRaWANHandler::isJoined() {
   // 1. Escuchar eventos asíncronos pendientes en el buffer serie del RAK3172
   while (SerialRAKLocal.available()) {
     String line = SerialRAKLocal.readStringUntil('\n');
+    appendRakLog("\n[EVT] ");
+    appendRakLog(line.c_str());
+    appendRakLog("\n");
     if (line.indexOf("+EVT:JOINED") >= 0 || line.indexOf("JOINED") >= 0) {
       _joined = true;
       _failCount = 0;
@@ -304,10 +313,11 @@ bool LoRaWANHandler::isJoined() {
     }
   }
 
-  // 2. Consultar estado del stack LoRaWAN de forma estricta
+  // 2. Consultar estado del stack LoRaWAN de forma directa
   String resp = sendAtCmdHardware("AT+NJS=?", 800);
   if (resp.indexOf("AT+NJS=1") >= 0 || resp.indexOf("NJS=1") >= 0 || resp.indexOf("=1") >= 0) {
     _joined = true;
+    _failCount = 0;
   } else {
     _joined = false;
   }
@@ -317,11 +327,16 @@ bool LoRaWANHandler::isJoined() {
 bool LoRaWANHandler::joinOTAA(uint32_t timeoutMs) {
   if (isJoined()) return true;
 
-  sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
+  static unsigned long lastJoinReq = 0;
+  if (millis() - lastJoinReq > 45000 || lastJoinReq == 0) {
+    lastJoinReq = millis();
+    sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
+  }
+
   unsigned long start = millis();
   while (millis() - start < timeoutMs) {
     if (isJoined()) return true;
-    delay(1000);
+    delay(500);
   }
   return isJoined();
 }
@@ -330,12 +345,10 @@ void LoRaWANHandler::process(uint32_t ms) {
   delay(ms);
 }
 
-#include "DebugSerial.h"
-
 bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t port, bool confirmed) {
   if (length == 0) return false;
 
-  // 1. Verificar que el módem esté efectivamente unido a la red
+  // 1. Verificar estado de unión
   if (!_joined && !isJoined()) {
     debugPrintln("[LORAWAN] Módem no unido a TTN. Omitiendo envío hasta completar Join.");
     return false;
@@ -364,46 +377,69 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
   snprintf(cmdBuf, sizeof(cmdBuf), "AT+SEND=%u:%s", (unsigned int)port, hexBuf);
   debugPrintf("[LORAWAN AT] >> %s (CFM=%d)\n", cmdBuf, confirmed ? 1 : 0);
 
-  appendRakLog("\n>> ");
-  appendRakLog(cmdBuf);
-  appendRakLog("\n");
-
-  char fullCmd[200];
-  snprintf(fullCmd, sizeof(fullCmd), "%s\r\n", cmdBuf);
-  SerialRAKLocal.write((const uint8_t*)fullCmd, strlen(fullCmd));
-
-  // 5. Capturar en un único buffer la respuesta completa esperando finalización real de radio
-  String resp = "";
-  unsigned long start = millis();
   bool txSuccess = false;
 
-  while (millis() - start < 8000) {
-    while (SerialRAKLocal.available()) {
-      char c = (char)SerialRAKLocal.read();
-      resp += c;
+  for (int retry = 0; retry < 3; retry++) {
+    appendRakLog("\n>> ");
+    appendRakLog(cmdBuf);
+    appendRakLog("\n");
+
+    char fullCmd[200];
+    snprintf(fullCmd, sizeof(fullCmd), "%s\r\n", cmdBuf);
+    SerialRAKLocal.write((const uint8_t*)fullCmd, strlen(fullCmd));
+
+    // Capturar respuesta inicial y eventos de radio
+    String resp = "";
+    unsigned long start = millis();
+    bool gotInitialOk = false;
+
+    while (millis() - start < 7000) {
+      while (SerialRAKLocal.available()) {
+        char c = (char)SerialRAKLocal.read();
+        resp += c;
+      }
+
+      if (resp.indexOf("OK") >= 0) {
+        gotInitialOk = true;
+      }
+
+      // Finalización real de transmisión por radio (+EVT:TX_DONE o SEND_CONFIRMED_OK)
+      if (resp.indexOf("SEND_CONFIRMED_OK") >= 0 || resp.indexOf("+EVT:TX_DONE") >= 0 || resp.indexOf("TX_DONE") >= 0) {
+        txSuccess = true;
+        break;
+      }
+
+      // Si es no confirmado y ya recibimos OK, aguardar brevemente +EVT:TX_DONE o dar por bueno tras 1.5s
+      if (!confirmed && gotInitialOk && (millis() - start > 1500)) {
+        txSuccess = true;
+        break;
+      }
+
+      // Manejo de Módem Ocupado (esperar y reintentar)
+      if (resp.indexOf("AT_BUSY") >= 0) {
+        debugPrintln("[LORAWAN] Módem ocupado con transmisión previa. Esperando...");
+        delay(2500);
+        break; // Sale al bucle de reintento
+      }
+
+      if (resp.indexOf("SEND_CONFIRMED_FAILED") >= 0 || 
+          resp.indexOf("AT_ERROR") >= 0 || 
+          resp.indexOf("AT_PARAM_ERROR") >= 0) {
+        txSuccess = false;
+        break;
+      }
+
+      delay(30);
     }
 
-    // A. Detección de Éxito: Esperar finalización completa de transmisión por radio (+EVT:TX_DONE / SEND_CONFIRMED_OK)
-    if (resp.indexOf("SEND_CONFIRMED_OK") >= 0 || resp.indexOf("+EVT:TX_DONE") >= 0 || resp.indexOf("TX_DONE") >= 0) {
-      txSuccess = true;
+    appendRakLog("<< ");
+    appendRakLog(resp.c_str());
+    debugPrintf("[LORAWAN RESP] << %s\n", resp.c_str());
+
+    if (txSuccess) {
       break;
     }
-
-    // B. Detección de Fallo explícito
-    if (resp.indexOf("SEND_CONFIRMED_FAILED") >= 0 || 
-        resp.indexOf("AT_ERROR") >= 0 || 
-        resp.indexOf("AT_BUSY") >= 0 || 
-        resp.indexOf("AT_PARAM_ERROR") >= 0) {
-      txSuccess = false;
-      break;
-    }
-
-    delay(20);
   }
-
-  appendRakLog("<< ");
-  appendRakLog(resp.c_str());
-  debugPrintf("[LORAWAN RESP] << %s\n", resp.c_str());
 
   if (txSuccess) {
     _failCount = 0;
@@ -411,8 +447,8 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
     return true;
   } else {
     _failCount++;
-    debugPrintf("[LORAWAN] Fallo de confirmación con Gateway (contador=%d)\n", _failCount);
-    if (_failCount >= 2) {
+    debugPrintf("[LORAWAN] Fallo en emisión de paquete LoRaWAN (contador=%d)\n", _failCount);
+    if (_failCount >= 3) {
       _joined = false;
       debugPrintln("[LORAWAN] Pérdida de enlace con Gateway. Reiniciando Join OTAA en background...");
       sendAtCmdHardware("AT+JOIN=1:1:10:8", 2000);
