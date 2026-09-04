@@ -28,29 +28,29 @@ Para permitir la integración de múltiples modelos de medidores (monofásicos, 
                            +------------------------+
                                        ▲
                                        │ (Herencia de lógica y señalización)
-                +----------------------+----------------------+
-                │                      │                      │
-+-------------------------------+ +--------------------+ +-------------------------------+
-|      MiddeDTS27Reader         | |  ElsterA150Reader  | |      MiddeDDS26DReader        |
-| (Trifásico / IEC 62056-21 C)  | | (Monofásico / 8N1) | | (Monofásico / IEC 62056-21 1) |
-+-------------------------------+ +--------------------+ +-------------------------------+
-                │                      │                      │
-                +----------------------+----------------------+
-                                       │
-                                       ▼
-                           +------------------------+
-                           |  MeterData (Unificado) |
-                           +------------------------+
-                                       │
-                                       ▼
-                           +------------------------+
-                           |   BitPacker (Binario)  |
-                           +------------------------+
-                                       │
-                                       ▼
-                           +------------------------+
-                           |    LoRaWAN (RAK3172)   |
-                           +------------------------+
+                 +----------------------+----------------------+----------------------+
+                 │                      │                      │                      │
+ +-------------------------------+ +--------------------+ +-------------------------------+ +-------------------------------+
+ |      MiddeDTS27Reader         | |  ElsterA150Reader  | |      MiddeDDS26DReader        | |      ElsterA1052Reader        |
+ | (Trifásico / IEC 62056-21 C)  | | (Monofásico / 8N1) | | (Monofásico / IEC 62056-21 1) | | (Trifásico / IEC 62056-21 C)  |
+ +-------------------------------+ +--------------------+ +-------------------------------+ +-------------------------------+
+                 │                      │                      │                      │
+                 +----------------------+----------------------+----------------------+
+                                        │
+                                        ▼
+                            +------------------------+
+                            |  MeterData (Unificado) |
+                            +------------------------+
+                                        │
+                                        ▼
+                            +------------------------+
+                            |   BitPacker (Binario)  |
+                            +------------------------+
+                                        │
+                                        ▼
+                            +------------------------+
+                            |    LoRaWAN (RAK3172)   |
+                            +------------------------+
 ```
 
 ---
@@ -62,6 +62,7 @@ Para permitir la integración de múltiples modelos de medidores (monofásicos, 
 | **MIDDE DTS27** | Trifásico | `MiddeDTS27Reader` | `METER_MODEL_MIDDE_DTS27` (2) | IEC 62056-21 Modo C (300 baud 7E1) | Sign-on `/?!\r\n` + ACK `\x06000\r\n` + Volcado OBIS |
 | **MIDDE DDS26D** | Monofásico | `MiddeDDS26DReader` | `METER_MODEL_MIDDE_DDS26D` (3) | IEC 62056-21 Modo 1 (2400 baud 7E1) | Sign-on + ACK `\x06031\r\n` + Polling R1 `1.8.0()`, `32.7.0()` |
 | **Elster A150** | Monofásico | `ElsterA150Reader` | `METER_MODEL_ELSTER_A150` (1) | Ráfaga Espontánea (2400 baud 8N1) | Captura continua y sincronismo atómico de 186 bytes |
+| **Elster A1052** | Trifásico | `ElsterA1052Reader` | `METER_MODEL_ELSTER_A1052` (4) | IEC 62056-21 Modo C (300 baud 7E1) | Sign-on `/?!\r\n` + ACK `\x06000\r\n` + Volcado OBIS trifásico |
 
 ---
 

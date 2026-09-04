@@ -6,6 +6,7 @@
 #include "MiddeDTS27Reader.h"
 #include "ElsterA150Reader.h"
 #include "MiddeDDS26DReader.h"
+#include "ElsterA1052Reader.h"
 #include "BitPacker.h"
 #include "LoRaWAN_Handler.h"
 #include "DebugSerial.h"
@@ -20,6 +21,8 @@ static MiddeDTS27Reader s_meterReader(IR_RX_PIN, IR_TX_PIN);
 static ElsterA150Reader s_meterReader(IR_RX_PIN, IR_TX_PIN);
 #elif SELECTED_METER_MODEL == METER_MODEL_MIDDE_DDS26D
 static MiddeDDS26DReader s_meterReader(IR_RX_PIN, IR_TX_PIN);
+#elif SELECTED_METER_MODEL == METER_MODEL_ELSTER_A1052
+static ElsterA1052Reader s_meterReader(IR_RX_PIN, IR_TX_PIN);
 #else
 #error "Modelo de medidor no seleccionado o no soportado en MeterConfig.h"
 #endif
@@ -168,7 +171,7 @@ void loop() {
 
     // 1. INTERROGACIÓN AL MEDIDOR POR EL PUERTO ÓPTICO (PA3 RX / PB10 TX)
     debugPrintf("[LECTURA] Interrogando al medidor %s en PA3(RX) / PB10(TX)...\n", g_reader.getMeterName());
-    bool readOk = g_reader.readMeter(g_meterData, 12000);
+    bool readOk = g_reader.readMeter(g_meterData, 35000);
 
     g_optDiag.magic = 0x0771C41D;
     g_optDiag.voltajeA = g_meterData.voltajeA;
