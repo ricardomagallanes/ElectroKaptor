@@ -160,9 +160,8 @@ void loop() {
   delay(50);
   setLed(LED_MCU_PIN, false);
 
-  // Ciclo de Lectura y Transmisión de Telemetría cada 15 segundos
-  if (millis() - lastTx > 15000 || lastTx == 0) {
-    lastTx = millis();
+  // Ciclo de Lectura y Transmisión de Telemetría cada 30 segundos
+  if (millis() - lastTx > 30000 || lastTx == 0) {
     cycleCount++;
 
     debugPrintf("\r\n==================================================\n");
@@ -280,6 +279,8 @@ void loop() {
       blinkLed(LED_3_PIN, 2, 100); // Parpadeo suave indicando espera de red
       loraHandler.joinOTAA(1000);  // Reintentar Join en segundo plano
     }
+
+    lastTx = millis();
   }
 
   delay(100);

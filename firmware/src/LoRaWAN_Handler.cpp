@@ -354,17 +354,15 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
     return false;
   }
 
-  // 2. Limpiar buffer serie de residuos
-  while (SerialRAKLocal.available()) SerialRAKLocal.read();
-
-  // 3. Configurar modo Confirmado o No Confirmado según requerimiento
-  if (confirmed) {
-    sendAtCmdHardware("AT+CFM=1", 600);
-  } else {
-    sendAtCmdHardware("AT+CFM=0", 600);
+  // 2. Limpiar buffer serie de residuos previos y capturar eventos pendientes
+  while (SerialRAKLocal.available()) {
+    String pending = SerialRAKLocal.readStringUntil('\n');
+    appendRakLog("\n[EVT-PRE-TX] ");
+    appendRakLog(pending.c_str());
+    appendRakLog("\n");
   }
 
-  // 4. Convertir payload binario a representación Hex ASCII
+  // 3. Convertir payload binario a representación Hex ASCII
   char hexBuf[128] = {0};
   const char hexChars[] = "0123456789ABCDEF";
   for (uint8_t i = 0; i < length; i++) {
@@ -388,12 +386,12 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
     snprintf(fullCmd, sizeof(fullCmd), "%s\r\n", cmdBuf);
     SerialRAKLocal.write((const uint8_t*)fullCmd, strlen(fullCmd));
 
-    // Capturar respuesta inicial y eventos de radio
+    // Capturar respuesta inicial (OK / AT_BUSY / AT_ERROR) y esperar evento TX_DONE
     String resp = "";
     unsigned long start = millis();
     bool gotInitialOk = false;
 
-    while (millis() - start < 7000) {
+    while (millis() - start < 8000) {
       while (SerialRAKLocal.available()) {
         char c = (char)SerialRAKLocal.read();
         resp += c;
@@ -409,23 +407,31 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
         break;
       }
 
-      // Si es no confirmado y ya recibimos OK, aguardar brevemente +EVT:TX_DONE o dar por bueno tras 1.5s
-      if (!confirmed && gotInitialOk && (millis() - start > 1500)) {
-        txSuccess = true;
-        break;
-      }
-
-      // Manejo de Módem Ocupado (esperar y reintentar)
+      // Si el módem reporta que está ocupado con una transmisión previa, aguardar a que termine
       if (resp.indexOf("AT_BUSY") >= 0) {
-        debugPrintln("[LORAWAN] Módem ocupado con transmisión previa. Esperando...");
-        delay(2500);
-        break; // Sale al bucle de reintento
+        debugPrintln("[LORAWAN] Módem ocupado con radio previa. Aguardando finalización (+EVT:TX_DONE)...");
+        unsigned long waitBusy = millis();
+        while (millis() - waitBusy < 4000) {
+          if (SerialRAKLocal.available()) {
+            char c = (char)SerialRAKLocal.read();
+            resp += c;
+            if (resp.indexOf("TX_DONE") >= 0) break;
+          }
+          delay(20);
+        }
+        break; // Reintenta el envío una vez liberado
       }
 
       if (resp.indexOf("SEND_CONFIRMED_FAILED") >= 0 || 
           resp.indexOf("AT_ERROR") >= 0 || 
           resp.indexOf("AT_PARAM_ERROR") >= 0) {
         txSuccess = false;
+        break;
+      }
+
+      // Para mensajes no confirmados, si ya obtuvimos OK y pasaron 3s, dar por concluido el ciclo de radio
+      if (!confirmed && gotInitialOk && (millis() - start > 3000)) {
+        txSuccess = true;
         break;
       }
 
@@ -439,6 +445,8 @@ bool LoRaWANHandler::sendPayload(const uint8_t *payload, uint8_t length, uint8_t
     if (txSuccess) {
       break;
     }
+
+    delay(1000); // Pausa antes de reintentar
   }
 
   if (txSuccess) {
