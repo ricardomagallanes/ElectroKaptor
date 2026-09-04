@@ -3,6 +3,7 @@
 #include "BoardConfig.h"
 #include "DebugSerial.h"
 
+// 2400 baudios -> 1 bit = 1000000 / 2400 = 416.67 us
 #define BIT_TIME_US_2400 417
 
 // Estructura de Diagnóstico en RAM para lectura SWD/OpenOCD
@@ -16,7 +17,7 @@ struct __attribute__((packed)) ElsterA1052Diag {
   uint32_t lastEnergyImp;
   uint8_t  state;         // 1=reading, 4=success, 5=error
   uint8_t  padding[3];
-  char     rawDump[512];
+  char     rawDump[1536]; // Buffer ampliado para capturar la totalidad de los 55 registros OBIS
 };
 
 volatile ElsterA1052Diag g_a1052Diag = {0xEE105200, 0, 0, 0, 0, 0, 0, 0, {0}, {0}};
@@ -30,30 +31,36 @@ void ElsterA1052Reader::begin(unsigned long baudRate) {
   pinMode(_rxPin, INPUT_PULLUP);
 }
 
-static float extractObisValue(const String &line) {
-  int p1 = line.indexOf('(');
-  if (p1 == -1) return 0.0f;
-  int p2 = line.indexOf('*', p1);
-  if (p2 == -1) p2 = line.indexOf(')', p1);
-  if (p2 == -1) return 0.0f;
-  return line.substring(p1 + 1, p2).toFloat();
+static float extractObisValue(const char* line) {
+  const char* pOpen = strchr(line, '(');
+  if (!pOpen) return 0.0f;
+  const char* pEnd = strchr(pOpen, '*');
+  if (!pEnd) pEnd = strchr(pOpen, ')');
+  if (!pEnd || pEnd <= (pOpen + 1)) return 0.0f;
+
+  char buf[32];
+  size_t len = pEnd - (pOpen + 1);
+  if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+  memcpy(buf, pOpen + 1, len);
+  buf[len] = '\0';
+  return atof(buf);
 }
 
+// Muestreo por ventana continua rápida de pulso a 2400 baudios (captura pulsos ópticos reales)
 int ElsterA1052Reader::readByteFast2400(uint32_t timeoutUs) {
   uint32_t startWait = micros();
 
-  // Aguardar flanco descendente (Start bit IR pulse)
+  // 1. Aguardar flanco descendente del Start bit (Línea pasa de HIGH a LOW por pulso IR)
   while (digitalRead(_rxPin) == HIGH) {
     if ((uint32_t)(micros() - startWait) > timeoutUs) {
       return -1; // Timeout
     }
   }
 
-  notifyOpticalActivity();
   uint32_t t0 = micros();
   uint8_t rawVal = 0;
 
-  // Muestrear los 8 slots de bits a 2400 baudios (417 us por slot, saltando el Start Bit)
+  // 2. Muestrear los 8 slots de bits a 2400 baudios (417 us por slot, saltando el Start Bit)
   for (int i = 0; i < 8; i++) {
     uint32_t slotStart = t0 + ((i + 1) * BIT_TIME_US_2400) + 40;
     uint32_t slotEnd   = t0 + ((i + 2) * BIT_TIME_US_2400) - 20;
@@ -75,8 +82,8 @@ int ElsterA1052Reader::readByteFast2400(uint32_t timeoutUs) {
   uint32_t charEnd = t0 + (10 * BIT_TIME_US_2400);
   while ((int32_t)(micros() - charEnd) < 0);
 
-  // Inversión lógica de modulación IR: pulso LOW = bit 0
-  uint8_t val = (~rawVal) & 0xFF;
+  // Inversión lógica de modulación IR (pulso LOW = bit 0) y máscara 7-bit (elimina bit de paridad 7E1)
+  uint8_t val = ((~rawVal) & 0x7F);
   return (int)val;
 }
 
@@ -112,9 +119,83 @@ int ElsterA1052Reader::readCharBitbang(unsigned long timeoutMs, uint32_t bitTime
   return readByteFast2400(timeoutMs * 1000);
 }
 
-bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeoutMs) {
-  data.tipoMedidor = 2; // Trifásico (Elster A1052)
+static void parseObisLine(const char* line, MeterData &data) {
+  float val = extractObisValue(line);
 
+  // 1. Tensiones por Fase (OBIS oficial Elster A1052 según Resumen Dispositivos con Obis.pdf)
+  // Item 46: 32.5.0(231.3*V) -> Tensión Fase A
+  // Item 47: 52.5.0(000.0*V) -> Tensión Fase B
+  // Item 48: 72.5.0(000.0*V) -> Tensión Fase C
+  if (strstr(line, "32.5.0") || strstr(line, "32.7.0") || strstr(line, "32.5(")) {
+    data.voltajeA = (uint16_t)round(val);
+  } else if (strstr(line, "52.5.0") || strstr(line, "52.7.0") || strstr(line, "52.5(")) {
+    data.voltajeB = (uint16_t)round(val);
+  } else if (strstr(line, "72.5.0") || strstr(line, "72.7.0") || strstr(line, "72.5(")) {
+    data.voltajeC = (uint16_t)round(val);
+  }
+
+  // 2. Corrientes por Fase (OBIS oficial Elster A1052)
+  // Item 49: 31.5.0(002.3*A) -> Corriente Fase A
+  // Item 50: 51.5.0(000.0*A) -> Corriente Fase B
+  // Item 51: 71.5.0(000.0*A) -> Corriente Fase C
+  else if (strstr(line, "31.5.0") || strstr(line, "31.7.0") || strstr(line, "31.5(")) {
+    data.corrienteA = (uint16_t)round(val * 100.0f);
+  } else if (strstr(line, "51.5.0") || strstr(line, "51.7.0") || strstr(line, "51.5(")) {
+    data.corrienteB = (uint16_t)round(val * 100.0f);
+  } else if (strstr(line, "71.5.0") || strstr(line, "71.7.0") || strstr(line, "71.5(")) {
+    data.corrienteC = (uint16_t)round(val * 100.0f);
+  }
+
+  // 3. Energía Activa Importada Total
+  // Item 5: 1.8.0(003321.011*kWh)
+  else if (strstr(line, "1.8.0(") || strstr(line, "1.8.0*")) {
+    if (val > 0.0f) {
+      data.energiaActivaImp = (uint32_t)round(val * 100.0f);
+      g_a1052Diag.lastEnergyImp = data.energiaActivaImp;
+    }
+  }
+
+  // 4. Energía Activa Exportada Total
+  // Item 6: 2.8.0(000000.000*kWh)
+  else if (strstr(line, "2.8.0(") || strstr(line, "2.8.0*")) {
+    data.energiaActivaExp = (uint32_t)round(val * 100.0f);
+  }
+
+  // 5. Energía Reactiva Importada Total
+  // Item 7: 3.8.0(000720.658*kVArh)
+  else if (strstr(line, "3.8.0(") || strstr(line, "3.8.0*")) {
+    data.energiaReactivaImp = (uint32_t)round(val * 100.0f);
+  }
+
+  // 6. Energía Reactiva Exportada Total
+  // Item 8: 4.8.0(000004.054*kVArh)
+  else if (strstr(line, "4.8.0(") || strstr(line, "4.8.0*")) {
+    data.energiaReactivaExp = (uint32_t)round(val * 100.0f);
+  }
+
+  // 7. Máxima Demanda de Importación
+  // Item 17: 1.6.0(00000.944*kW) o Item 21: 1.2.0(...) o Item 13: 1.5.0(...)
+  else if (strstr(line, "1.6.0(") || strstr(line, "1.5.0(") || strstr(line, "1.2.0(")) {
+    if (val > 0.0f && data.maximaDemandaImp == 0) {
+      data.maximaDemandaImp = (uint32_t)round(val * 100.0f);
+    }
+  }
+
+  // 8. Factor de Potencia Instantáneo Cos φ
+  else if (strstr(line, "13.5.0") || strstr(line, "13.7.0") || strstr(line, "33.7.0")) {
+    data.cosphi = (uint8_t)round(val * 100.0f);
+  }
+
+  // 9. Frecuencia de Red
+  else if (strstr(line, "14.5.0") || strstr(line, "14.7.0")) {
+    data.frecuenciaMin = (uint16_t)round(val * 100.0f);
+    data.frecuenciaMax = data.frecuenciaMin;
+  }
+}
+
+bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeoutMs) {
+  // Inicialización estricta en 0 (Directiva Mandatoria AGENTS.md / README.md)
+  data.tipoMedidor = 2; // Trifásico (Elster A1052)
   data.voltajeA = 0;
   data.voltajeB = 0;
   data.voltajeC = 0;
@@ -122,9 +203,16 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
   data.corrienteB = 0;
   data.corrienteC = 0;
   data.cosphi = 0;
+  data.energiaActivaImp = 0;
+  data.energiaActivaExp = 0;
+  data.energiaReactivaImp = 0;
+  data.energiaReactivaExp = 0;
+  data.maximaDemandaImp = 0;
+  data.maximaDemandaExp = 0;
+  data.frecuenciaMin = 0;
+  data.frecuenciaMax = 0;
   data.lecturaValida = false;
 
-  // Captura y Procesamiento Inmediato del Flujo Óptico de 2400 baudios 8N1
   debugPrintln("\n[IR-A1052] Capturando ráfaga óptica OBIS Elster Trifásico A1052 (2400 baudios)...");
   debugPrintf("[IR-A1052] Pines: RX=%d, TX=%d\n", _rxPin, _txPin);
 
@@ -144,144 +232,65 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
   while (readByteFast2400(2000) >= 0);
 
   unsigned long hardDeadline = millis() + timeoutMs;
-  unsigned long lastCharTime = millis();
-  String obisBuffer = "";
-  int lineCount = 0;
-  int dumpIdx = 0;
+  uint16_t dumpIdx = 0;
 
-  while (millis() < hardDeadline) {
-    notifyOpticalActivity();
-    int b = readByteFast2400(3500000); // hasta 3.5s entre caracteres/ráfagas
-    if (b >= 0) {
-      char c = (char)(b & 0x7F);
-      debugPrintChar(c);
-      obisBuffer += c;
-
-      if (dumpIdx < sizeof(g_a1052Diag.rawDump) - 2) {
-        g_a1052Diag.rawDump[dumpIdx++] = c;
-        g_a1052Diag.rawDump[dumpIdx] = '\0';
-      }
-      g_a1052Diag.bytesRead++;
-
-      if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '.' || c == '(' || c == ')' || c == '*') {
-        lastCharTime = millis();
-      }
-
-      if (c == '\n') {
-        String line = obisBuffer;
-        line.trim();
-        while (line.length() > 0 && (uint8_t)line[0] < 0x20) {
-          line.remove(0, 1);
-        }
-        lineCount++;
-        g_a1052Diag.lineCount = lineCount;
-
-        // Parseo de registros OBIS del medidor Elster A1052
-        // A0. Presencia y Estado de Fases mediante Registro de Estado Óptico 0.2.1(XYZW)
-        // El primer dígito hexadecimal decodifica las fases con tensión presentes en el medidor:
-        // Bit 0 (0x1): Fase A activa (230V)
-        // Bit 1 (0x2): Fase B activa (230V)
-        // Bit 2 (0x4): Fase C activa (230V)
-        if (line.indexOf("2.1(") >= 0 || line.indexOf("0.2.1") >= 0 || line.indexOf("C.7.") >= 0) {
-          int p1 = line.indexOf('(');
-          if (p1 != -1 && (p1 + 1) < (int)line.length()) {
-            char c0 = line.charAt(p1 + 1);
-            uint8_t mask = 0;
-            if (c0 >= '0' && c0 <= '9') mask = c0 - '0';
-            else if (c0 >= 'A' && c0 <= 'F') mask = c0 - 'A' + 10;
-            else if (c0 >= 'a' && c0 <= 'f') mask = c0 - 'a' + 10;
-
-            if (mask & 0x01) data.voltajeA = 230;
-            if (mask & 0x02) data.voltajeB = 230;
-            if (mask & 0x04) data.voltajeC = 230;
-          }
-        }
-
-        // A. Tensiones analógicas directas por Fase (si estuvieran configuradas en el medidor)
-        if (line.indexOf("32.7") >= 0 || line.indexOf("32.5") >= 0 || line.indexOf("32.25") >= 0 || line.indexOf("U1(") >= 0 || line.indexOf("V1(") >= 0 || line.indexOf("VA(") >= 0 || line.indexOf("UL1(") >= 0) {
-          data.voltajeA = (uint16_t)round(extractObisValue(line));
-        }
-        else if (line.indexOf("52.7") >= 0 || line.indexOf("52.5") >= 0 || line.indexOf("52.25") >= 0 || line.indexOf("U2(") >= 0 || line.indexOf("V2(") >= 0 || line.indexOf("VB(") >= 0 || line.indexOf("UL2(") >= 0) {
-          data.voltajeB = (uint16_t)round(extractObisValue(line));
-        }
-        else if (line.indexOf("72.7") >= 0 || line.indexOf("72.5") >= 0 || line.indexOf("72.25") >= 0 || line.indexOf("U3(") >= 0 || line.indexOf("V3(") >= 0 || line.indexOf("VC(") >= 0 || line.indexOf("UL3(") >= 0) {
-          data.voltajeC = (uint16_t)round(extractObisValue(line));
-        }
-        // Canales de Fase 3 (L3): 3.8.0, 3.2.0, 3.4.0, 3.6.0 (Energía y demandas activas/reactivas de fase 3)
-        else if ((line.indexOf("3.8.0") >= 0 || line.indexOf("3.2.0") >= 0 || line.indexOf("3.6.0") >= 0) && extractObisValue(line) > 0.0f) {
-          if (data.voltajeC == 0 && data.voltajeA == 0 && data.voltajeB == 0) {
-            data.voltajeC = 230;
-          }
-        }
-        // B. Corrientes por Fase (L1/A = 31.x, L2/B = 51.x, L3/C = 71.x)
-        else if (line.indexOf("31.7") >= 0 || line.indexOf("31.5") >= 0 || line.indexOf("I1(") >= 0 || line.indexOf("IA(") >= 0 || line.indexOf("IL1(") >= 0) {
-          data.corrienteA = (uint16_t)round(extractObisValue(line) * 100.0f);
-        }
-        else if (line.indexOf("51.7") >= 0 || line.indexOf("51.5") >= 0 || line.indexOf("I2(") >= 0 || line.indexOf("IB(") >= 0 || line.indexOf("IL2(") >= 0) {
-          data.corrienteB = (uint16_t)round(extractObisValue(line) * 100.0f);
-        }
-        else if (line.indexOf("71.7") >= 0 || line.indexOf("71.5") >= 0 || line.indexOf("I3(") >= 0 || line.indexOf("IC(") >= 0 || line.indexOf("IL3(") >= 0) {
-          data.corrienteC = (uint16_t)round(extractObisValue(line) * 100.0f);
-        }
-        // C. Factor de Potencia Cos φ
-        else if (line.indexOf("13.7") >= 0 || line.indexOf("13.5") >= 0 || line.indexOf("33.7") >= 0 || line.indexOf("PF(") >= 0) {
-          data.cosphi = (uint8_t)round(extractObisValue(line) * 100.0f);
-        }
-        // D. Frecuencia de Red
-        else if (line.indexOf("14.7") >= 0 || line.indexOf("14.5") >= 0 || line.indexOf("FREQ(") >= 0 || line.indexOf("HZ(") >= 0) {
-          data.frecuenciaMin = (uint16_t)round(extractObisValue(line) * 100.0f);
-          data.frecuenciaMax = data.frecuenciaMin;
-        }
-        // E. Energía Activa Importada (1.8.0 / 1.0.1.8.0 / 1.8.0.1 / 1.8.0*)
-        else if (line.indexOf("1.8.0") >= 0 || line.indexOf(".8.0") >= 0 || line.indexOf("*kWh") > 0) {
-          float kwh = extractObisValue(line);
-          if (kwh > 0.0f) {
-            data.energiaActivaImp = (uint32_t)round(kwh * 100.0f);
-            g_a1052Diag.lastEnergyImp = data.energiaActivaImp;
-          }
-        }
-        // F. Energía Activa Exportada (2.8.0 / 1.0.2.8.0)
-        else if (line.indexOf("2.8.0") >= 0 || line.indexOf("2.8.1") >= 0) {
-          data.energiaActivaExp = (uint32_t)round(extractObisValue(line) * 100.0f);
-        }
-        // G. Energía Reactiva Importada (3.8.0 / 1.0.3.8.0)
-        else if (line.indexOf("3.8.0") >= 0 || line.indexOf("3.8.1") >= 0 || line.indexOf("*kVArh") > 0) {
-          data.energiaReactivaImp = (uint32_t)round(extractObisValue(line) * 100.0f);
-        }
-        // H. Energía Reactiva Exportada (4.8.0 / 1.0.4.8.0)
-        else if (line.indexOf("4.8.0") >= 0 || line.indexOf("4.8.1") >= 0) {
-          data.energiaReactivaExp = (uint32_t)round(extractObisValue(line) * 100.0f);
-        }
-        // I. Demanda Activa Importada (1.4.0 / 1.6.0 / 1.2.0)
-        else if (line.indexOf("1.4.0") >= 0 || line.indexOf("1.6.0") >= 0 || line.indexOf("1.2.0") >= 0 || line.indexOf("*kW") > 0) {
-          data.maximaDemandaImp = (uint32_t)round(extractObisValue(line) * 100.0f);
-        }
-        // J. Demanda Activa Exportada (2.4.0 / 2.6.0)
-        else if (line.indexOf("2.4.0") >= 0 || line.indexOf("2.6.0") >= 0) {
-          data.maximaDemandaExp = (uint32_t)round(extractObisValue(line) * 100.0f);
-        }
-
-        obisBuffer = "";
-      }
-
-      if (c == '!' || c == 0x03) {
-        debugPrintln("\n[IR-A1052] Fin de bloque detectado (! / ETX).");
-        break;
-      }
-    } else {
-      // Timeout inter-byte
-      if (lineCount >= 4) {
-        break;
-      }
+  // Capturar bytes consecutivamente sin bloqueos ni parseos intermedios
+  while (millis() < hardDeadline && dumpIdx < sizeof(g_a1052Diag.rawDump) - 2) {
+    if ((dumpIdx & 0x1F) == 0) {
+      notifyOpticalActivity();
     }
 
-    if (lineCount >= 6 && (millis() - lastCharTime > 1500)) {
-      debugPrintln("\n[IR-A1052] Fin de ráfaga por silencio.");
-      break;
+    // Si aún no inició la ráfaga, esperar hasta 3.5s; una vez iniciada, timeout de 100ms indica fin de ráfaga
+    uint32_t waitTimeoutUs = (dumpIdx == 0) ? 3500000 : 100000;
+    int b = readByteFast2400(waitTimeoutUs);
+
+    if (b >= 0) {
+      g_a1052Diag.rawDump[dumpIdx++] = (char)b;
+      g_a1052Diag.rawDump[dumpIdx] = '\0';
+    } else {
+      if (dumpIdx > 50) {
+        // Fin de ráfaga tras recibir contenido
+        debugPrintln("[IR-A1052] Fin de ráfaga detectado por silencio.");
+        break;
+      }
     }
   }
 
-  if (lineCount >= 3 || data.voltajeA > 0 || data.voltajeB > 0 || data.voltajeC > 0 || data.energiaActivaImp > 0) {
+  g_a1052Diag.bytesRead = dumpIdx;
+  debugPrintf("[IR-A1052] Total de bytes capturados: %u bytes\n", dumpIdx);
+
+  if (dumpIdx < 10) {
+    debugPrintln("[IR-A1052] Error: No se recibieron datos suficientes en la ráfaga.");
+    g_a1052Diag.state = 5; // Error
+    return false;
+  }
+
+  // Decodificación línea a línea de los registros OBIS almacenados en memoria
+  char lineBuf[128];
+  uint16_t lineBufIdx = 0;
+  uint16_t totalLines = 0;
+
+  for (uint16_t i = 0; i <= dumpIdx; i++) {
+    char c = (i < dumpIdx) ? g_a1052Diag.rawDump[i] : '\n';
+    if (c == '\r') continue;
+    if (c == '\n') {
+      lineBuf[lineBufIdx] = '\0';
+      if (lineBufIdx > 0) {
+        totalLines++;
+        debugPrintf("[IR-A1052-OBIS] %s\n", lineBuf);
+        parseObisLine(lineBuf, data);
+      }
+      lineBufIdx = 0;
+    } else if (lineBufIdx < sizeof(lineBuf) - 1) {
+      lineBuf[lineBufIdx++] = c;
+    }
+  }
+
+  g_a1052Diag.lineCount = totalLines;
+  debugPrintf("[IR-A1052] Total de líneas OBIS procesadas: %u\n", totalLines);
+
+  // Verificación de éxito de lectura: Se acepta si se recibieron registros válidos o energía real
+  if (totalLines >= 3 || data.voltajeA > 0 || data.voltajeB > 0 || data.voltajeC > 0 || data.energiaActivaImp > 0) {
     g_a1052Diag.state = 4; // Success
     data.lecturaValida = true;
 

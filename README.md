@@ -1,6 +1,16 @@
 # ElectroKaptor ⚡📟
 
-**ElectroKaptor** es un sistema de telemetría y lectura remota industrial para medidores de energía eléctrica (**MIDDE Trifásico DTS27**, **Elster A150** y futuros modelos), diseñado para operar tanto en la placa oficial **ME_LoRa_v3.6** basada en el microcontrolador **STM32F103C8T6** y módem **RAKwireless RAK3172 (RUI3)** como en la plataforma **Heltec ESP32-S3 (WiFi LoRa 32 V3)** con conectividad **LoRaWAN (TTN)** y sonda infrarroja (IR).
+**ElectroKaptor** es un sistema de telemetría y lectura remota industrial para medidores de energía eléctrica (**Elster Trifásico A1052**, **MIDDE Trifásico DTS27**, **Elster A150** y futuros modelos), diseñado para operar tanto en la placa oficial **ME_LoRa_v3.6** basada en el microcontrolador **STM32F103C8T6** y módem **RAKwireless RAK3172 (RUI3)** como en la plataforma **Heltec ESP32-S3 (WiFi LoRa 32 V3)** con conectividad **LoRaWAN (TTN)** y sonda infrarroja (IR).
+
+---
+
+## 🔒 DIRECTIVA MANDATORIA DEL PROYECTO: PROHIBICIÓN ESTRICTA DE VALORES HARDCODEADOS O INICIALIZACIONES DISTINTAS DE CERO
+
+> [!CAUTION]
+> **REGLA MANDATORIA E INVIOLABLE EN TODO EL REPOSITORIO Y FIRMWARE:**
+> 1. **Cero Hardcoding de Mediciones:** Queda TERMINANTEMENTE PROHIBIDO inicializar, forzar, inferir, asignar por omisión o sintetizar cualquier valor de medición física (tensión, corriente, potencia, factor de potencia, energía, demanda, batería, temperatura, frecuencia).
+> 2. **Inicialización Estricta en Cero (0):** Toda variable, estructura de medición (`MeterData`) y campo de telemetría debe inicializarse indefectiblemente en `0` (`0x00`).
+> 3. **Fidelidad Absoluta con la Señal Física:** Todo dato reportado al servidor LoRaWAN debe provenir EXCLUSIVAMENTE de la lectura y decodificación fehaciente del flujo óptico/serial del medidor. Si una fase o registro no está conectado, no está presente o no es transmitido por el medidor, el valor reportado DEBE SER 0. Está estrictamente prohibido asumir o asignar valores nominales (ej. 220V o 230V) ante la ausencia de lectura.
 
 ---
 

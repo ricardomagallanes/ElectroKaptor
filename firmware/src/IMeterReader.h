@@ -72,7 +72,7 @@ public:
     // Ejecuta la lectura óptica específica del protocolo del medidor
     bool success = performOpticalRead(data, timeoutMs);
 
-    if (success && (data.voltajeA > 0 || data.energiaActivaImp > 0 || data.lecturaValida)) {
+    if (success && (data.voltajeA > 0 || data.voltajeB > 0 || data.voltajeC > 0 || data.energiaActivaImp > 0 || data.lecturaValida)) {
       data.lecturaValida = true;
       data.estado = 0;
       notifyOpticalSuccess();

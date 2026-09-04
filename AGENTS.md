@@ -27,3 +27,11 @@ Antes de realizar cualquier commit (`git commit`) o crear/modificar archivos en 
 1. No existan cadenas de 16 caracteres hexadecimales correspondientes a EUIs reales.
 2. No existan claves o AppKeys expuestas.
 3. No existan nombres corporativos o referencias sensibles.
+
+---
+
+## 🚫 5. Prohibición Absoluta de Valores Hardcodeados, Ficticios o Inicializaciones Distintas de Cero
+- **Cero Hardcoding:** Queda terminantemente prohibido inicializar, asignar por defecto, estimar, simular o hardcodear cualquier parámetro de medición física (tensión, corriente, factor de potencia, energía, demanda, batería, temperatura, frecuencia).
+- **Inicialización Estricta en Cero:** Toda variable o estructura de medición (`MeterData`) debe inicializarse estrictamente en 0 (`0x00`).
+- **Valores Reales Únicamente:** Si el medidor no transmite o no se decodifica fehacientemente un dato real a través de su interfaz de comunicación física/óptica, el valor reportado debe permanecer indefectiblemente en 0. Nunca se debe inferir o asignar un valor ficticio o nominal (por ejemplo, asignar 220V o 230V por inferencia).
+
