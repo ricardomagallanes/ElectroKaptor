@@ -89,25 +89,32 @@ int HexingHXE34KReader::readCharBitbang(unsigned long timeoutMs, uint32_t bitTim
     if (digitalRead(_rxPin) == LOW) {
       notifyOpticalActivity();
 
-      // Muestrear en el 50% del Start Bit para validar señal
-      delayMicroseconds(bitTimeUs / 2);
-      if (digitalRead(_rxPin) != LOW) continue; // Ruido / falso disparo
+      uint32_t tStart = micros();
+      // Validar en el 50% del Start Bit
+      while ((int32_t)(micros() - (tStart + bitTimeUs / 2)) < 0);
+      if (digitalRead(_rxPin) != LOW) continue; // Falso disparo / ruido
 
       uint8_t val = 0;
+      // Muestrear en el centro exacto de cada uno de los 7 bits de datos
       for (int i = 0; i < 7; i++) {
-        delayMicroseconds(bitTimeUs);
+        uint32_t tSample = tStart + (uint32_t)((i + 1) * bitTimeUs) + (bitTimeUs / 2);
+        while ((int32_t)(micros() - tSample) < 0);
         if (digitalRead(_rxPin) == HIGH) {
           val |= (1 << i);
         }
       }
 
-      // Parity bit y Stop bit
-      delayMicroseconds(bitTimeUs);
-      delayMicroseconds(bitTimeUs);
+      // Bit de paridad (posición slot 8)
+      uint32_t tParity = tStart + (uint32_t)(8 * bitTimeUs) + (bitTimeUs / 2);
+      while ((int32_t)(micros() - tParity) < 0);
 
-      // Esperar a que la línea retorne a reposo (HIGH)
-      unsigned long waitStop = micros();
-      while (digitalRead(_rxPin) == LOW && (micros() - waitStop < bitTimeUs * 2)) {
+      // Bit de stop (posición slot 9)
+      uint32_t tStop = tStart + (uint32_t)(9 * bitTimeUs) + (bitTimeUs / 2);
+      while ((int32_t)(micros() - tStop) < 0);
+
+      // Esperar brevemente si la línea sigue en LOW
+      uint32_t tIdle = micros();
+      while (digitalRead(_rxPin) == LOW && (micros() - tIdle < bitTimeUs * 2)) {
       }
 
       return val & 0x7F;
@@ -335,11 +342,32 @@ bool HexingHXE34KReader::performOpticalRead(MeterData &data, unsigned long timeo
   strncpy((char*)g_hexingDiag.meterId, idResponse.c_str(), sizeof(g_hexingDiag.meterId) - 1);
   debugPrintf("[IR-HEXING] Identificación recibida: %s\n", idResponse.c_str());
 
-  // 4. Enviar confirmación ACK Modo C (Readout a 300 baudios): ACK(0x06) + "000\r\n"
+  // 4. Negociación de baud rate Modo C (según identificación, ej. /HXE4\HXE34K -> '4' = 4800 baud)
+  char baudChar = '4'; // Por defecto 4800 baud en Hexing HXE34K
+  if (idResponse.length() >= 5 && idResponse[4] >= '0' && idResponse[4] <= '9') {
+    baudChar = idResponse[4];
+  }
+
+  uint32_t dataBitTimeUs = 208; // 4800 baud
+  switch (baudChar) {
+    case '0': dataBitTimeUs = BIT_TIME_US_300; break;
+    case '1': dataBitTimeUs = 1667; break; // 600 baud
+    case '2': dataBitTimeUs = 833;  break; // 1200 baud
+    case '3': dataBitTimeUs = 417;  break; // 2400 baud
+    case '4': dataBitTimeUs = 208;  break; // 4800 baud
+    case '5': dataBitTimeUs = 104;  break; // 9600 baud
+    default:  dataBitTimeUs = 208;  break;
+  }
+
   delay(150);
-  debugPrintln("[IR-HEXING] Enviando ACK (\\x06000\\r\\n) para solicitar registros OBIS...");
+  char ackBuf[16];
+  snprintf(ackBuf, sizeof(ackBuf), "0%c0\r\n", baudChar);
+  debugPrintf("[IR-HEXING] Enviando ACK (\\x06%s) conmutando a %c (%lu us/bit)...\n", ackBuf, baudChar, dataBitTimeUs);
   sendCharBitbang(0x06, BIT_TIME_US_300);
-  sendStringBitbang("000\r\n", BIT_TIME_US_300);
+  sendStringBitbang(ackBuf, BIT_TIME_US_300);
+
+  // Pausa estándar IEC 62056-21 requerida entre ACK y comienzo de flujo a mayor velocidad
+  delay(250);
 
   // 5. Captura y decodificación en streaming del bloque de registros OBIS
   debugPrintln("[IR-HEXING] Recibiendo y procesando registros OBIS Hexing HXE34K:");
@@ -351,7 +379,7 @@ bool HexingHXE34KReader::performOpticalRead(MeterData &data, unsigned long timeo
 
   while (millis() < obisTimeout) {
     notifyOpticalActivity();
-    int b = readCharBitbang(450, BIT_TIME_US_300);
+    int b = readCharBitbang(250, dataBitTimeUs);
     if (b >= 0) {
       char c = (char)(b & 0x7F);
       debugPrintChar(c);
