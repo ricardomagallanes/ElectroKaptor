@@ -10,7 +10,8 @@
   - **Placa Oficial ME_LoRa_v3.6:** Microcontrolador ARM Cortex-M3 **STM32F103C8T6** (72 MHz) + Módem LoRaWAN **RAK3172** (STM32WLE5CC / Semtech SX1262) comunicado por USART1 Remapeado a 115200 baudios.
   - **Placa de Evaluación Heltec V3:** SoC **ESP32-S3** con transceptor SX1262 integrado.
 - **Arquitectura Multimedidor Polimórfica:**
-  - **MIDDE Trifásico DTS27:** Comunicación bidireccional IEC 62056-21 Modo C a **300 baudios 7E1** con volcado interactivo de registros OBIS.
+  - **MIDDE Trifásico DTS27:** Comunicación bidireccional IEC 62056-21 Modo C a **300 baudios 7E1** con volcado interactivo de registros OBIS trifásicos.
+  - **MIDDE Monofásico DDS26D:** Comunicación interactiva IEC 62056-21 Modo 1 a **2400 baudios 7E1** con lectura selectiva de registros OBIS monofásicos.
   - **Elster Monofásico A150:** Captura por ráfaga espontánea a **2400 baudios 8N1** con desmodulación 4-a-8 bits y sincronismo atómico de 186 bytes.
 - **Empaquetamiento Eficiente de Telemetría (BitPacker):**
   - **Trama 1 (Mensaje 0 - 15 bytes):** Tipo de medidor (Mono/Tri), Estado, Batería, Factor de Potencia (Cos $\phi$), Voltajes de Fase ($V_A, V_B, V_C$), Corrientes ($I_A, I_B, I_C$), Frecuencia y Energía Activa Importada Total.
@@ -37,7 +38,10 @@ Para seleccionar el modelo de medidor a compilar en el firmware, se edita [`firm
 // #define SELECTED_METER_MODEL METER_MODEL_MIDDE_DTS27
 
 // Para medir Elster A150 (Monofásico):
-#define SELECTED_METER_MODEL METER_MODEL_ELSTER_A150
+// #define SELECTED_METER_MODEL METER_MODEL_ELSTER_A150
+
+// Para medir MIDDE Monofásico DDS26D:
+#define SELECTED_METER_MODEL METER_MODEL_MIDDE_DDS26D
 ```
 
 ---
@@ -47,6 +51,7 @@ Para seleccionar el modelo de medidor a compilar en el firmware, se edita [`firm
 - [📖 Lógica Completa del Programa y LEDs (`LOGICA_DEL_PROGRAMA.md`)](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/documentacion/LOGICA_DEL_PROGRAMA.md)
 - [⚡ Especificación Técnica: Medidor Monofásico Elster A150 (`medidor_elster_a150.md`)](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/documentacion/medidor_elster_a150.md)
 - [⚡ Especificación Técnica: Medidor Trifásico Midde DTS27 (`medidor_midde_dts27.md`)](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/documentacion/medidor_midde_dts27.md)
+- [⚡ Especificación Técnica: Medidor Monofásico MIDDE DDS26D (`medidor_midde_dds26d.md`)](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/documentacion/medidor_midde_dds26d.md)
 - [🏗️ Guía de Arquitectura Multimedidor (`ARQUITECTURA_MULTIMEDIDOR.md`)](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/documentacion/ARQUITECTURA_MULTIMEDIDOR.md)
 - [🔌 Diagrama de Conexión y Pines (`diagrama_conexion.md`)](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/docs/diagrama_conexion.md)
 

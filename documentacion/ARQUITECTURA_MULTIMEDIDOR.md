@@ -16,14 +16,14 @@ Para permitir la integración de múltiples modelos de medidores (monofásicos, 
                            +------------------------+
                                        ▲
                                        │ (Herencia / Polimorfismo)
-                 +---------------------+---------------------+
-                 │                                           │
-+----------------------------------+       +----------------------------------+
-|      MiddeDTS27Reader            |       |       ElsterA150Reader           |
-| (Trifásico / IEC 62056-21 Modo C)|       | (Monofásico / 2400 baudios 8N1)  |
-+----------------------------------+       +----------------------------------+
-                 │                                           │
-                 +---------------------+---------------------+
+                +----------------------+----------------------+
+                │                      │                      │
++-------------------------------+ +--------------------+ +-------------------------------+
+|      MiddeDTS27Reader         | |  ElsterA150Reader  | |      MiddeDDS26DReader        |
+| (Trifásico / IEC 62056-21 C)  | | (Monofásico / 8N1) | | (Monofásico / IEC 62056-21 1) |
++-------------------------------+ +--------------------+ +-------------------------------+
+                │                      │                      │
+                +----------------------+----------------------+
                                        │
                                        ▼
                            +------------------------+
@@ -43,51 +43,20 @@ Para permitir la integración de múltiples modelos de medidores (monofásicos, 
 
 ---
 
-## 2. 📁 Estructura de Clases del Subsistema Óptico
+## 2. 📋 Medidores Implementados en el Sistema
 
-### 2.1. Interfaz Base [`IMeterReader.h`](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/firmware/src/IMeterReader.h)
-Define el contrato obligatorio que todo nuevo driver de medidor debe implementar:
-```cpp
-class IMeterReader {
-public:
-  virtual ~IMeterReader() {}
-  virtual void begin(unsigned long baudRate = 0) = 0;
-  virtual bool readMeter(MeterData &data, unsigned long timeoutMs = 12000) = 0;
-  virtual const char* getMeterName() const = 0;
-};
-```
-
-### 2.2. Estructura Unificada de Datos `MeterData`
-Centraliza todos los campos eléctricos medidos para ser entregados al empaquetador:
-```cpp
-struct MeterData {
-  bool     lecturaValida;      // true si la lectura óptica fue exitosa
-  uint8_t  tipoMedidor;        // 1=Monofásico, 2=Trifásico, 3=Grandes Clientes
-  uint8_t  estado;             // 0=Normal, 1=Alerta, 2=Sin Lectura, etc.
-  uint8_t  bateria;            // % batería interna (ej: 90)
-  uint8_t  temperatura;        // °C MCU/Ambiente
-  uint8_t  cosphi;             // Factor de potencia (x100)
-  uint16_t frecuenciaMin;      // Frecuencia de red (x100, ej: 5000 = 50.00 Hz)
-  uint16_t frecuenciaMax;      // Frecuencia max
-  uint16_t voltajeA, voltajeB, voltajeC; // Tensión en Volts
-  uint16_t corrienteA, corrienteB, corrienteC; // Corriente en A*100
-  uint32_t energiaActivaImp;   // kWh * 100
-  uint32_t energiaActivaExp;   // kWh * 100
-  uint32_t energiaReactivaImp; // kVARh * 100
-  uint32_t energiaReactivaExp; // kVARh * 100
-  uint32_t maximaDemandaImp;   // kW * 100
-  uint32_t maximaDemandaExp;   // kW * 100
-};
-```
+| Medidor | Tipo | Driver | ID Modelo | Protocolo Óptico | Modo de Operación |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **MIDDE DTS27** | Trifásico | `MiddeDTS27Reader` | `METER_MODEL_MIDDE_DTS27` (2) | IEC 62056-21 Modo C (300 baud 7E1) | Sign-on `/?!\r\n` + ACK `\x06000\r\n` + Volcado OBIS |
+| **MIDDE DDS26D** | Monofásico | `MiddeDDS26DReader` | `METER_MODEL_MIDDE_DDS26D` (3) | IEC 62056-21 Modo 1 (2400 baud 7E1) | Sign-on + ACK `\x06031\r\n` + Polling R1 `1.8.0()`, `32.7.0()` |
+| **Elster A150** | Monofásico | `ElsterA150Reader` | `METER_MODEL_ELSTER_A150` (1) | Ráfaga Espontánea (2400 baud 8N1) | Captura continua y sincronismo atómico de 186 bytes |
 
 ---
 
-## 3. 🛠️ Paso a Paso: Cómo Agregar un Nuevo Medidor
+## 3. ➕ Guía Paso a Paso para Agregar un Nuevo Medidor
 
-Para incorporar un nuevo modelo (ej: *Medidor Hexing, Landis+Gyr, Actaris, etc.*):
-
-### Paso 1: Crear la clase del Driver
-Crear los archivos `NuevoMedidorReader.h` y `NuevoMedidorReader.cpp` heredando de `IMeterReader`:
+### Paso 1: Crear la Clase Lectora
+Crear los archivos `src/NuevoMedidorReader.h` y `src/NuevoMedidorReader.cpp` heredando de `IMeterReader`:
 ```cpp
 #include "IMeterReader.h"
 
@@ -95,8 +64,8 @@ class NuevoMedidorReader : public IMeterReader {
 public:
   NuevoMedidorReader(uint8_t rxPin, uint8_t txPin);
   void begin(unsigned long baudRate = 0) override;
-  bool readMeter(MeterData &data, unsigned long timeoutMs = 10000) override;
-  const char* getMeterName() const override { return "Nombre Medidor"; }
+  bool readMeter(MeterData &data, unsigned long timeoutMs = 12000) override;
+  const char* getMeterName() const override { return "Nuevo Medidor"; }
 
 private:
   uint8_t _rxPin, _txPin;
@@ -105,9 +74,10 @@ private:
 
 ### Paso 2: Registrar el Modelo en [`MeterConfig.h`](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/firmware/src/MeterConfig.h)
 ```c
-#define METER_MODEL_MIDDE_DTS27   1
-#define METER_MODEL_ELSTER_A150   2
-#define METER_MODEL_NUEVO_MODELO  3
+#define METER_MODEL_ELSTER_A150   1
+#define METER_MODEL_MIDDE_DTS27   2
+#define METER_MODEL_MIDDE_DDS26D  3
+#define METER_MODEL_NUEVO_MODELO  4
 
 #define SELECTED_METER_MODEL      METER_MODEL_NUEVO_MODELO
 ```
@@ -118,6 +88,8 @@ private:
 static MiddeDTS27Reader s_meterReader(IR_RX_PIN, IR_TX_PIN);
 #elif SELECTED_METER_MODEL == METER_MODEL_ELSTER_A150
 static ElsterA150Reader s_meterReader(IR_RX_PIN, IR_TX_PIN);
+#elif SELECTED_METER_MODEL == METER_MODEL_MIDDE_DDS26D
+static MiddeDDS26DReader s_meterReader(IR_RX_PIN, IR_TX_PIN);
 #elif SELECTED_METER_MODEL == METER_MODEL_NUEVO_MODELO
 static NuevoMedidorReader s_meterReader(IR_RX_PIN, IR_TX_PIN);
 #endif
@@ -128,7 +100,5 @@ static IMeterReader &g_reader = s_meterReader;
 ---
 
 ## 4. 📦 Empaquetado Binario Universal (`BitPacker`) y TTN
-- Independientemente del medidor físico conectado, el empaquetador [`BitPacker.cpp`](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/firmware/src/BitPacker.cpp) genera tramas binarias estándar:
-  - **Trama 0 (Mensaje 0):** Telemetría Principal (15 bytes).
-  - **Trama 1 (Mensaje 1):** Energías secundarias y demandas máximas (16 bytes).
+- Independientemente del medidor físico conectado, el empaquetador [`BitPacker.cpp`](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/firmware/src/BitPacker.cpp) genera tramas binarias estándar de 15 bytes.
 - El decodificador JavaScript en The Things Network (*Payload Formatter*) analiza el campo `tipo_medidor` para renderizar adecuadamente las magnitudes monofásicas o trifásicas.

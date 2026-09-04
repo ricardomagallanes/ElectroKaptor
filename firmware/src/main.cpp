@@ -5,6 +5,7 @@
 #include "IMeterReader.h"
 #include "MiddeDTS27Reader.h"
 #include "ElsterA150Reader.h"
+#include "MiddeDDS26DReader.h"
 #include "BitPacker.h"
 #include "LoRaWAN_Handler.h"
 #include "DebugSerial.h"
@@ -17,6 +18,8 @@ LoRaWANHandler loraHandler;
 static MiddeDTS27Reader s_meterReader(IR_RX_PIN, IR_TX_PIN);
 #elif SELECTED_METER_MODEL == METER_MODEL_ELSTER_A150
 static ElsterA150Reader s_meterReader(IR_RX_PIN, IR_TX_PIN);
+#elif SELECTED_METER_MODEL == METER_MODEL_MIDDE_DDS26D
+static MiddeDDS26DReader s_meterReader(IR_RX_PIN, IR_TX_PIN);
 #else
 #error "Modelo de medidor no seleccionado o no soportado en MeterConfig.h"
 #endif
