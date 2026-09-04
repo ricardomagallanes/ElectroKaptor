@@ -14,7 +14,7 @@
 // =========================================================================
 // SELECCIÓN DEL MEDIDOR ACTIVO Y FORMATO DE TRANSMISIÓN
 // =========================================================================
-#define SELECTED_METER_MODEL    METER_MODEL_MIDDE_DTS27
+#define SELECTED_METER_MODEL    METER_MODEL_ELSTER_A150
 #define SELECTED_PAYLOAD_FORMAT PAYLOAD_FORMAT_ASCII_HEX
 
 // Configuración de comunicación infrarroja (DTS27 protocolo IEC 62056-21 Modo C a 300 baudios 7E1)

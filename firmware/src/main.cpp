@@ -1,15 +1,27 @@
 #include <Arduino.h>
 #include "BoardConfig.h"
 #include "Credentials.h"
+#include "MeterConfig.h"
 #include "IMeterReader.h"
 #include "MiddeDTS27Reader.h"
+#include "ElsterA150Reader.h"
 #include "BitPacker.h"
 #include "LoRaWAN_Handler.h"
 #include "DebugSerial.h"
 
-// Instancia global de manejo LoRaWAN y Lector Óptico
+// Instancia global de manejo LoRaWAN
 LoRaWANHandler loraHandler;
-MiddeDTS27Reader g_reader(IR_RX_PIN, IR_TX_PIN);
+
+// Instancia estática del Lector de Medidor según MeterConfig.h
+#if SELECTED_METER_MODEL == METER_MODEL_MIDDE_DTS27
+static MiddeDTS27Reader s_meterReader(IR_RX_PIN, IR_TX_PIN);
+#elif SELECTED_METER_MODEL == METER_MODEL_ELSTER_A150
+static ElsterA150Reader s_meterReader(IR_RX_PIN, IR_TX_PIN);
+#else
+#error "Modelo de medidor no seleccionado o no soportado en MeterConfig.h"
+#endif
+
+static IMeterReader &g_reader = s_meterReader;
 
 // Buffers estáticos para proteger el Stack Cortex-M3 (evita desbordes y HardFaults)
 static MeterData g_meterData;
@@ -113,6 +125,8 @@ void setup() {
   // 1. Parpadeo inicial de prueba de LEDs
   blinkLed(LED_MCU_PIN, 2, 100);
 
+  debugPrintf("[INFO] Medidor Activo: %s\n", g_reader.getMeterName());
+
   // 2. Inicializar módem LoRaWAN RAK3172 en PB6/PB7
   debugPrintln("[INFO] Inicializando módem RAK3172 LoRaWAN...");
   if (!loraHandler.begin()) {
@@ -148,8 +162,8 @@ void loop() {
     debugPrintf("==================================================\n");
 
     // 1. INTERROGACIÓN AL MEDIDOR POR EL PUERTO ÓPTICO (PA3 RX / PB10 TX)
-    debugPrintln("[LECTURA] Interrogando al medidor por el puerto óptico en PA3(RX) / PB10(TX)...");
-    bool readOk = g_reader.readMeter(g_meterData, 4000);
+    debugPrintf("[LECTURA] Interrogando al medidor %s en PA3(RX) / PB10(TX)...\n", g_reader.getMeterName());
+    bool readOk = g_reader.readMeter(g_meterData, 12000);
 
     g_optDiag.magic = 0x0771C41D;
     g_optDiag.voltajeA = g_meterData.voltajeA;
@@ -163,12 +177,11 @@ void loop() {
     g_optDiag.lecturaOk = readOk ? 1 : 0;
 
     if (!readOk) {
-      debugPrintln("[ALERTA] Sonda óptica sin respuesta del medidor. Generando tramas de estado (Estado=2)...");
-      g_meterData.tipoMedidor = 2; // Trifásico DTS27
+      debugPrintf("[ALERTA] Sonda óptica sin respuesta del medidor %s. Generando tramas de estado (Estado=2)...\n", g_reader.getMeterName());
       g_meterData.estado = 2;      // Sin Lectura / Alerta IR
       blinkLed(LED_3_PIN, 4, 100); // Error en LED 3
     } else {
-      debugPrintln("[ÉXITO] Lectura óptica decodificada del medidor correctamente (Estado=0).");
+      debugPrintf("[ÉXITO] Lectura óptica decodificada del medidor %s correctamente (Estado=0).\n", g_reader.getMeterName());
     }
 
     // 2. Empaquetar TRAMA 1 (Mensaje 0: Telemetría Principal) mediante BitPacker
@@ -202,38 +215,36 @@ void loop() {
       bool tx0 = loraHandler.sendPayload(g_binPayload0, payloadLen0, 10, false); // Trama 1 (Unconfirmed)
 
       if (tx0) {
-        debugPrintln("[ÉXITO] Trama 1 (Mensaje 0) emitida al servidor.");
+        debugPrintln("[ÉXITO] Trama 1 (Mensaje 0) emitida al servidor TTN.");
       } else {
         debugPrintln("[ERROR] Falló la emisión de Trama 1.");
       }
 
-      // Pausa entre tramas
-      delay(1500);
+      // Pausa entre tramas para cumplir con el ciclo de trabajo LoRa
+      delay(2000);
 
-      debugPrintln("[LORAWAN] Transmitiendo Trama 2 (Mensaje 1) con Confirmación de Gateway...");
-      bool tx1 = loraHandler.sendPayload(g_binPayload1, payloadLen1, 10, true); // Trama 2 (Confirmed ACK)
+      debugPrintln("[LORAWAN] Transmitiendo Trama 2 (Mensaje 1)...");
+      bool tx1 = loraHandler.sendPayload(g_binPayload1, payloadLen1, 10, false); // Trama 2 (Unconfirmed)
 
       if (tx1) {
-        debugPrintln("[ÉXITO] Trama 2 (Mensaje 1) enviada y confirmada por Gateway.");
+        debugPrintln("[ÉXITO] Trama 2 (Mensaje 1) emitida al servidor TTN.");
       } else {
-        debugPrintln("[ERROR] Falló el envío de Trama 2 (Sin ACK del Gateway).");
+        debugPrintln("[ERROR] Falló la emisión de Trama 2.");
       }
 
-      // Apagar INMEDIATAMENTE el LED 2 al concluir el intento de transmisión
+      // Apagar INMEDIATAMENTE el LED 2 al concluir el envío
       setLed(LED_2_PIN, false);
 
-      // Si ambas tramas fueron exitosas (Gateway confirmó el ciclo), asegurar todos los LEDs apagados
-      if (tx0 && tx1) {
+      if (tx0 || tx1) {
         setLed(LED_3_PIN, false);
         setLed(LED_4_PIN, false);
       } else {
-        // ÚNICAMENTE si falló el envío (ej: Gateway desconectado), parpadear LED 3 de error
-        blinkLed(LED_3_PIN, 4, 100);
+        blinkLed(LED_3_PIN, 3, 100);
       }
     } else {
       debugPrintln("[ALERTA] Dispositivo aguardando conexión / reconexión a la red TTN.");
       setLed(LED_2_PIN, false);
-      blinkLed(LED_3_PIN, 4, 100); // Parpadeo de error por falta de enlace
+      blinkLed(LED_3_PIN, 2, 100); // Parpadeo suave indicando espera de red
       loraHandler.joinOTAA(1000);  // Reintentar Join en segundo plano
     }
   }

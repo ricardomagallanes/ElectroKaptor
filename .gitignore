@@ -16,3 +16,7 @@ firmware/include/Credentials.h
 # Codigos anteriores (no subir al repositorio)
 codigos-anteiores/
 codigos-anteriores/
+
+# Logs
+*.log
+openocd.log
