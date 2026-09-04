@@ -7,6 +7,7 @@
 #include "ElsterA150Reader.h"
 #include "MiddeDDS26DReader.h"
 #include "ElsterA1052Reader.h"
+#include "HexingHXE34KReader.h"
 #include "BitPacker.h"
 #include "LoRaWAN_Handler.h"
 #include "DebugSerial.h"
@@ -23,6 +24,8 @@ static ElsterA150Reader s_meterReader(IR_RX_PIN, IR_TX_PIN);
 static MiddeDDS26DReader s_meterReader(IR_RX_PIN, IR_TX_PIN);
 #elif SELECTED_METER_MODEL == METER_MODEL_ELSTER_A1052
 static ElsterA1052Reader s_meterReader(IR_RX_PIN, IR_TX_PIN);
+#elif SELECTED_METER_MODEL == METER_MODEL_HEXING_HXE34K
+static HexingHXE34KReader s_meterReader(IR_RX_PIN, IR_TX_PIN);
 #else
 #error "Modelo de medidor no seleccionado o no soportado en MeterConfig.h"
 #endif

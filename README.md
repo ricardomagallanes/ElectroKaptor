@@ -20,6 +20,8 @@
   - **Placa Oficial ME_LoRa_v3.6:** Microcontrolador ARM Cortex-M3 **STM32F103C8T6** (72 MHz) + Módem LoRaWAN **RAK3172** (STM32WLE5CC / Semtech SX1262) comunicado por USART1 Remapeado a 115200 baudios.
   - **Placa de Evaluación Heltec V3:** SoC **ESP32-S3** con transceptor SX1262 integrado.
 - **Arquitectura Multimedidor Polimórfica:**
+  - **Hexing Trifásico HXE34K:** Comunicación interactiva IEC 62056-21 Modo C a **300 baudios 7E1** con wake-up óptico previo y volcado de registros OBIS trifásicos.
+  - **Elster Trifásico A1052:** Captura y decodificación de ráfaga continua a **2400 baudios 7E1** con lectura de tensiones analógicas y corrientes por fase.
   - **MIDDE Trifásico DTS27:** Comunicación bidireccional IEC 62056-21 Modo C a **300 baudios 7E1** con volcado interactivo de registros OBIS trifásicos.
   - **MIDDE Monofásico DDS26D:** Comunicación interactiva IEC 62056-21 Modo 1 a **2400 baudios 7E1** con lectura selectiva de registros OBIS monofásicos.
   - **Elster Monofásico A150:** Captura por ráfaga espontánea a **2400 baudios 8N1** con desmodulación 4-a-8 bits y sincronismo atómico de 186 bytes.
@@ -44,6 +46,12 @@
 Para seleccionar el modelo de medidor a compilar en el firmware, se edita [`firmware/src/MeterConfig.h`](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/firmware/src/MeterConfig.h):
 
 ```cpp
+// Para medir Hexing Trifásico HXE34K:
+#define SELECTED_METER_MODEL METER_MODEL_HEXING_HXE34K
+
+// Para medir Elster Trifásico A1052:
+// #define SELECTED_METER_MODEL METER_MODEL_ELSTER_A1052
+
 // Para medir MIDDE Trifásico DTS27:
 // #define SELECTED_METER_MODEL METER_MODEL_MIDDE_DTS27
 
@@ -51,7 +59,7 @@ Para seleccionar el modelo de medidor a compilar en el firmware, se edita [`firm
 // #define SELECTED_METER_MODEL METER_MODEL_ELSTER_A150
 
 // Para medir MIDDE Monofásico DDS26D:
-#define SELECTED_METER_MODEL METER_MODEL_MIDDE_DDS26D
+// #define SELECTED_METER_MODEL METER_MODEL_MIDDE_DDS26D
 ```
 
 ---
@@ -59,6 +67,8 @@ Para seleccionar el modelo de medidor a compilar en el firmware, se edita [`firm
 ## 📚 Documentación Técnica Detallada
 
 - [📖 Lógica Completa del Programa y LEDs (`LOGICA_DEL_PROGRAMA.md`)](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/documentacion/LOGICA_DEL_PROGRAMA.md)
+- [⚡ Especificación Técnica: Medidor Trifásico Hexing HXE34K (`medidor_hexing_hxe34k.md`)](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/documentacion/medidor_hexing_hxe34k.md)
+- [⚡ Especificación Técnica: Medidor Trifásico Elster A1052 (`medidor_elster_a1052.md`)](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/documentacion/medidor_elster_a1052.md)
 - [⚡ Especificación Técnica: Medidor Monofásico Elster A150 (`medidor_elster_a150.md`)](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/documentacion/medidor_elster_a150.md)
 - [⚡ Especificación Técnica: Medidor Trifásico Midde DTS27 (`medidor_midde_dts27.md`)](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/documentacion/medidor_midde_dts27.md)
 - [⚡ Especificación Técnica: Medidor Monofásico MIDDE DDS26D (`medidor_midde_dds26d.md`)](file:///c:/Users/nahuel/Documents/Antigravity/ElectroKaptor/documentacion/medidor_midde_dds26d.md)
