@@ -20,7 +20,7 @@ struct __attribute__((packed)) HexingDiag {
   uint8_t  state;         // 1=wake/sign-on, 2=receiving, 4=success, 5=error
   uint8_t  padding[3];
   char     meterId[64];
-  char     rawDump[1024];
+  char     rawDump[1536];
 };
 
 volatile HexingDiag g_hexingDiag = {0xEE340000, 0, 0, 0, 0, 0, 0, 0, {0}, {0}, {0}};
@@ -171,12 +171,12 @@ static float extractObisValue(const String &line) {
 static void parseHexingObisLine(const String &line, MeterData &data) {
   float val = extractObisValue(line);
 
-  // 1. Tensiones por Fase (OBIS estándar Hexing HXE34K: 32.7.0, 52.7.0, 72.7.0 / 32.5.0, etc.)
-  if (line.indexOf("32.7.0") >= 0 || line.indexOf("1.0.32.7") >= 0 || line.indexOf("32.5.0") >= 0 || line.indexOf("32.7(") >= 0) {
+  // 1. Tensiones por Fase (OBIS estándar Hexing HXE34K / Elster A1052: 32.7, 32.5, 52.7, 52.5, 72.7, 72.5)
+  if (line.indexOf("32.7") >= 0 || line.indexOf("32.5") >= 0) {
     data.voltajeA = (uint16_t)round(val);
-  } else if (line.indexOf("52.7.0") >= 0 || line.indexOf("1.0.52.7") >= 0 || line.indexOf("52.5.0") >= 0 || line.indexOf("52.7(") >= 0) {
+  } else if (line.indexOf("52.7") >= 0 || line.indexOf("52.5") >= 0) {
     data.voltajeB = (uint16_t)round(val);
-  } else if (line.indexOf("72.7.0") >= 0 || line.indexOf("1.0.72.7") >= 0 || line.indexOf("72.5.0") >= 0 || line.indexOf("72.7(") >= 0) {
+  } else if (line.indexOf("72.7") >= 0 || line.indexOf("72.5") >= 0) {
     data.voltajeC = (uint16_t)round(val);
   }
 
@@ -297,14 +297,15 @@ bool HexingHXE34KReader::performOpticalRead(MeterData &data, unsigned long timeo
   if (idResponse.length() == 0) {
     debugPrintln("[IR-HEXING] Sin respuesta inmediata a Sign-on 300 baud. Verificando emisión espontánea a 2400 baud...");
     int dumpIdx = 0;
-    unsigned long burstWait = millis() + 3500;
+    unsigned long burstWait = millis() + 8000;
     while (millis() < burstWait && dumpIdx < (int)sizeof(g_hexingDiag.rawDump) - 2) {
-      int b = readByteFast2400(100000);
+      int b = readByteFast2400(dumpIdx == 0 ? 3000000 : 100000);
       if (b >= 0) {
         g_hexingDiag.rawDump[dumpIdx++] = (char)b;
         g_hexingDiag.rawDump[dumpIdx] = '\0';
+        burstWait = millis() + 1500; // Extender mientras sigan llegando bytes
       } else if (dumpIdx > 50) {
-        break;
+        break; // Fin de ráfaga por silencio
       }
     }
 
@@ -312,7 +313,7 @@ bool HexingHXE34KReader::performOpticalRead(MeterData &data, unsigned long timeo
       debugPrintf("[IR-HEXING] ¡Ráfaga espontánea detectada! (%d bytes)\n", dumpIdx);
       g_hexingDiag.bytesRead = dumpIdx;
       // Procesar líneas OBIS desde la ráfaga
-      char copyBuf[1024];
+      char copyBuf[1536];
       strncpy(copyBuf, (char*)g_hexingDiag.rawDump, sizeof(copyBuf));
       char *linePtr = strtok(copyBuf, "\r\n");
       int lCount = 0;

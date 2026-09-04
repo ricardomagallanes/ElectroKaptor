@@ -65,6 +65,41 @@ void MeterAutoDetector::sendStringBitbang7E1(uint8_t txPin, const char* str, uin
   }
 }
 
+int MeterAutoDetector::readByteFast2400(uint8_t rxPin, uint32_t timeoutUs) {
+  uint32_t startWait = micros();
+  while (digitalRead(rxPin) == HIGH) {
+    if ((uint32_t)(micros() - startWait) > timeoutUs) {
+      return -1;
+    }
+  }
+
+  uint32_t t0 = micros();
+  uint8_t rawVal = 0;
+
+  for (int i = 0; i < 8; i++) {
+    uint32_t slotStart = t0 + (i * BIT_TIME_US_2400) + 150;
+    uint32_t slotEnd   = t0 + ((i + 1) * BIT_TIME_US_2400) + 150;
+
+    while ((int32_t)(micros() - slotStart) < 0);
+
+    bool pulseFound = false;
+    while ((int32_t)(micros() - slotEnd) < 0) {
+      if (digitalRead(rxPin) == LOW) {
+        pulseFound = true;
+      }
+    }
+
+    if (pulseFound) {
+      rawVal |= (1 << i);
+    }
+  }
+
+  uint32_t charEnd = t0 + (10 * BIT_TIME_US_2400);
+  while ((int32_t)(micros() - charEnd) < 0);
+
+  return (int)((~rawVal) & 0x7F);
+}
+
 int MeterAutoDetector::readCharBitbang7E1(uint8_t rxPin, unsigned long timeoutMs, uint32_t bitTimeUs) {
   unsigned long start = millis();
   while (millis() - start < timeoutMs) {
@@ -150,7 +185,7 @@ uint8_t MeterAutoDetector::detectMeter(uint8_t rxPin, uint8_t txPin, unsigned lo
 
   unsigned long passiveStart = millis();
   bool activityFound = false;
-  while (millis() - passiveStart < 2200) {
+  while (millis() - passiveStart < 5500) {
     if (digitalRead(rxPin) == LOW) {
       activityFound = true;
       break;
@@ -162,16 +197,17 @@ uint8_t MeterAutoDetector::detectMeter(uint8_t rxPin, uint8_t txPin, unsigned lo
     String asciiBuf = "";
     int asciiCount = 0;
     int binaryCount = 0;
-    unsigned long burstTimeout = millis() + 1500;
+    unsigned long burstTimeout = millis() + 2500;
 
-    while (millis() < burstTimeout && asciiBuf.length() < 120) {
-      int c = readCharBitbang7E1(rxPin, 150, BIT_TIME_US_2400);
+    while (millis() < burstTimeout && asciiBuf.length() < 160) {
+      int c = readByteFast2400(rxPin, 150000);
       if (c >= 0) {
-        if (c >= 32 && c <= 126) {
-          asciiBuf += (char)c;
+        char ch = (char)c;
+        if (ch >= 32 && ch <= 126) {
+          asciiBuf += ch;
           asciiCount++;
-        } else if (c == '\r' || c == '\n') {
-          asciiBuf += (char)c;
+        } else if (ch == '\r' || ch == '\n') {
+          asciiBuf += ch;
         } else {
           binaryCount++;
         }
@@ -180,9 +216,10 @@ uint8_t MeterAutoDetector::detectMeter(uint8_t rxPin, uint8_t txPin, unsigned lo
 
     debugPrintf("[AUTO-DETECT] Muestras: ASCII=%d, Binario=%d | Stream: %s\n", asciiCount, binaryCount, asciiBuf.c_str());
 
-    // Elster A1052 transmite texto ASCII con registros OBIS (puntos, paréntesis, códigos)
-    if (asciiBuf.indexOf("32.7") >= 0 || asciiBuf.indexOf("1.8.0") >= 0 || asciiBuf.indexOf("1052") >= 0 ||
-        (asciiCount > 15 && asciiBuf.indexOf("(") >= 0)) {
+    // 1. Elster A1052 (Trifásico): Transmite texto ASCII continuo con registros OBIS y delimitadores '(' ')'
+    if (asciiCount > 8 && (asciiBuf.indexOf("(") >= 0 || asciiBuf.indexOf("1.8.0") >= 0 || 
+                           asciiBuf.indexOf("0.2.") >= 0 || asciiBuf.indexOf("Elster") >= 0 ||
+                           asciiBuf.indexOf("32.5") >= 0)) {
       debugPrintln("✅ [AUTO-DETECT] ¡Identificado Medidor Trifásico ELSTER A1052!");
       g_autoDetectDiag.detectedModel = METER_MODEL_ELSTER_A1052;
       g_autoDetectDiag.detectionStage = 4;
@@ -191,8 +228,8 @@ uint8_t MeterAutoDetector::detectMeter(uint8_t rxPin, uint8_t txPin, unsigned lo
       return METER_MODEL_ELSTER_A1052;
     }
 
-    // Elster A150 transmite tramas continuas de 186 bytes desmoduladas (alta densidad binaria o ráfaga)
-    if (binaryCount > 8 || asciiCount > 10) {
+    // 2. Elster A150 (Monofásico): Transmite ráfaga continua no-ASCII / binaria con modulación 4-a-8 bits
+    if (binaryCount > 8) {
       debugPrintln("✅ [AUTO-DETECT] ¡Identificado Medidor Monofásico ELSTER A150!");
       g_autoDetectDiag.detectedModel = METER_MODEL_ELSTER_A150;
       g_autoDetectDiag.detectionStage = 4;
@@ -202,7 +239,7 @@ uint8_t MeterAutoDetector::detectMeter(uint8_t rxPin, uint8_t txPin, unsigned lo
   }
 
   // =========================================================================
-  // FASE 2: SONDEO ACTIVO A 300 BAUDIOS (HEXING HXE34K / MIDDE DTS27)
+  // FASE 2: SONDEO ACTIVO A 300 BAUDIOS (HEXING HXE34K / MIDDE DTS27 / ELSTER A1052)
   // =========================================================================
   debugPrintln("[AUTO-DETECT] Fase 2: Interrogación óptica IEC 62056-21 Modo C a 300 baud...");
   g_autoDetectDiag.detectionStage = 2;
@@ -242,6 +279,12 @@ uint8_t MeterAutoDetector::detectMeter(uint8_t rxPin, uint8_t txPin, unsigned lo
       g_autoDetectDiag.detectionStage = 4;
       strncpy((char*)g_autoDetectDiag.modelName, "Hexing HXE34K (Trifasico)", sizeof(g_autoDetectDiag.modelName) - 1);
       return METER_MODEL_HEXING_HXE34K;
+    } else if (id300.indexOf("Bb") >= 0 || id300.indexOf("ELS") >= 0 || id300.indexOf("1052") >= 0) {
+      debugPrintln("✅ [AUTO-DETECT] ¡Identificado Medidor Trifásico ELSTER A1052!");
+      g_autoDetectDiag.detectedModel = METER_MODEL_ELSTER_A1052;
+      g_autoDetectDiag.detectionStage = 4;
+      strncpy((char*)g_autoDetectDiag.modelName, "Elster A1052 (Trifasico)", sizeof(g_autoDetectDiag.modelName) - 1);
+      return METER_MODEL_ELSTER_A1052;
     } else {
       debugPrintln("✅ [AUTO-DETECT] ¡Identificado Medidor Trifásico MIDDE DTS27!");
       g_autoDetectDiag.detectedModel = METER_MODEL_MIDDE_DTS27;

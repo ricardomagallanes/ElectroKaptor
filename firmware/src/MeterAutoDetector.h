@@ -45,7 +45,7 @@ public:
    */
   static const char* getModelName(uint8_t model);
 
-private:
+  static int  readByteFast2400(uint8_t rxPin, uint32_t timeoutUs);
   static int  readCharBitbang7E1(uint8_t rxPin, unsigned long timeoutMs, uint32_t bitTimeUs);
   static int  readByteBitbang8N1(uint8_t rxPin, unsigned long timeoutMs, uint32_t bitTimeUs);
   static void sendCharBitbang7E1(uint8_t txPin, char c, uint32_t bitTimeUs);

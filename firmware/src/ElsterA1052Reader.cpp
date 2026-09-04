@@ -60,10 +60,10 @@ int ElsterA1052Reader::readByteFast2400(uint32_t timeoutUs) {
   uint32_t t0 = micros();
   uint8_t rawVal = 0;
 
-  // 2. Muestrear los 8 slots de bits a 2400 baudios (417 us por slot, saltando el Start Bit)
+  // 2. Muestrear los 8 slots de bits a 2400 baudios (417 us por slot)
   for (int i = 0; i < 8; i++) {
-    uint32_t slotStart = t0 + ((i + 1) * BIT_TIME_US_2400) + 40;
-    uint32_t slotEnd   = t0 + ((i + 2) * BIT_TIME_US_2400) - 20;
+    uint32_t slotStart = t0 + (i * BIT_TIME_US_2400) + 150;
+    uint32_t slotEnd   = t0 + ((i + 1) * BIT_TIME_US_2400) + 150;
 
     while ((int32_t)(micros() - slotStart) < 0);
 
@@ -83,8 +83,7 @@ int ElsterA1052Reader::readByteFast2400(uint32_t timeoutUs) {
   while ((int32_t)(micros() - charEnd) < 0);
 
   // Inversión lógica de modulación IR (pulso LOW = bit 0) y máscara 7-bit (elimina bit de paridad 7E1)
-  uint8_t val = ((~rawVal) & 0x7F);
-  return (int)val;
+  return (int)((~rawVal) & 0x7F);
 }
 
 void ElsterA1052Reader::sendCharBitbang(char c, uint32_t bitTimeUs) {
@@ -126,23 +125,26 @@ static void parseObisLine(const char* line, MeterData &data) {
   // Item 46: 32.5.0(231.3*V) -> Tensión Fase A
   // Item 47: 52.5.0(000.0*V) -> Tensión Fase B
   // Item 48: 72.5.0(000.0*V) -> Tensión Fase C
-  if (strstr(line, "32.5.0") || strstr(line, "32.7.0") || strstr(line, "32.5(")) {
+  if (strstr(line, "32.5") || strstr(line, "32.7")) {
     data.voltajeA = (uint16_t)round(val);
-  } else if (strstr(line, "52.5.0") || strstr(line, "52.7.0") || strstr(line, "52.5(")) {
+    g_a1052Diag.lastVoltageA = data.voltajeA;
+  } else if (strstr(line, "52.5") || strstr(line, "52.7")) {
     data.voltajeB = (uint16_t)round(val);
-  } else if (strstr(line, "72.5.0") || strstr(line, "72.7.0") || strstr(line, "72.5(")) {
+    g_a1052Diag.lastVoltageB = data.voltajeB;
+  } else if (strstr(line, "72.5") || strstr(line, "72.7")) {
     data.voltajeC = (uint16_t)round(val);
+    g_a1052Diag.lastVoltageC = data.voltajeC;
   }
 
   // 2. Corrientes por Fase (OBIS oficial Elster A1052)
   // Item 49: 31.5.0(002.3*A) -> Corriente Fase A
   // Item 50: 51.5.0(000.0*A) -> Corriente Fase B
   // Item 51: 71.5.0(000.0*A) -> Corriente Fase C
-  else if (strstr(line, "31.5.0") || strstr(line, "31.7.0") || strstr(line, "31.5(")) {
+  else if (strstr(line, "31.5") || strstr(line, "31.7")) {
     data.corrienteA = (uint16_t)round(val * 100.0f);
-  } else if (strstr(line, "51.5.0") || strstr(line, "51.7.0") || strstr(line, "51.5(")) {
+  } else if (strstr(line, "51.5") || strstr(line, "51.7")) {
     data.corrienteB = (uint16_t)round(val * 100.0f);
-  } else if (strstr(line, "71.5.0") || strstr(line, "71.7.0") || strstr(line, "71.5(")) {
+  } else if (strstr(line, "71.5") || strstr(line, "71.7")) {
     data.corrienteC = (uint16_t)round(val * 100.0f);
   }
 
@@ -240,8 +242,8 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
       notifyOpticalActivity();
     }
 
-    // Si aún no inició la ráfaga, esperar hasta 3.5s; una vez iniciada, timeout de 100ms indica fin de ráfaga
-    uint32_t waitTimeoutUs = (dumpIdx == 0) ? 3500000 : 100000;
+    // Si aún no inició la ráfaga, esperar hasta 3.5s; una vez iniciada, timeout de 350ms para no truncar la ráfaga
+    uint32_t waitTimeoutUs = (dumpIdx == 0) ? 3500000 : 350000;
     int b = readByteFast2400(waitTimeoutUs);
 
     if (b >= 0) {

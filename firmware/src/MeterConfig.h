@@ -22,10 +22,8 @@
 // El firmware identifica automáticamente en el arranque cuál medidor está conectado,
 // bloquea el driver para toda la sesión y opera con él hasta el próximo apagado/reinicio.
 #define SELECTED_METER_MODEL    METER_MODEL_AUTO_DETECT
-
-// PARA FORZAR UN MEDIDOR ESPECÍFICO EN PRUEBAS (Omitir proceso de auto-descubrimiento):
-// #define SELECTED_METER_MODEL    METER_MODEL_HEXING_HXE34K
 // #define SELECTED_METER_MODEL    METER_MODEL_ELSTER_A1052
+// #define SELECTED_METER_MODEL    METER_MODEL_HEXING_HXE34K
 // #define SELECTED_METER_MODEL    METER_MODEL_MIDDE_DTS27
 // #define SELECTED_METER_MODEL    METER_MODEL_MIDDE_DDS26D
 // #define SELECTED_METER_MODEL    METER_MODEL_ELSTER_A150
