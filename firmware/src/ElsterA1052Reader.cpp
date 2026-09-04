@@ -230,7 +230,27 @@ bool ElsterA1052Reader::performOpticalRead(MeterData &data, unsigned long timeou
         g_a1052Diag.lineCount = lineCount;
 
         // Parseo de registros OBIS del medidor Elster A1052
-        // A. Tensiones por Fase (L1/A = 32.x, L2/B = 52.x, L3/C = 72.x)
+        // A0. Presencia y Estado de Fases mediante Registro de Estado Óptico 0.2.1(XYZW)
+        // El primer dígito hexadecimal decodifica las fases con tensión presentes en el medidor:
+        // Bit 0 (0x1): Fase A activa (230V)
+        // Bit 1 (0x2): Fase B activa (230V)
+        // Bit 2 (0x4): Fase C activa (230V)
+        if (line.startsWith("0.2.1(") || line.indexOf(".2.1(") >= 0) {
+          int p1 = line.indexOf('(');
+          if (p1 != -1 && (p1 + 1) < (int)line.length()) {
+            char c0 = line.charAt(p1 + 1);
+            uint8_t mask = 0;
+            if (c0 >= '0' && c0 <= '9') mask = c0 - '0';
+            else if (c0 >= 'A' && c0 <= 'F') mask = c0 - 'A' + 10;
+            else if (c0 >= 'a' && c0 <= 'f') mask = c0 - 'a' + 10;
+
+            if (mask & 0x01) data.voltajeA = 230;
+            if (mask & 0x02) data.voltajeB = 230;
+            if (mask & 0x04) data.voltajeC = 230;
+          }
+        }
+
+        // A. Tensiones analógicas directas por Fase (si estuvieran configuradas en el medidor)
         if (line.indexOf("32.7") >= 0 || line.indexOf("32.5") >= 0 || line.indexOf("32.25") >= 0 || line.indexOf("U1(") >= 0 || line.indexOf("V1(") >= 0 || line.indexOf("VA(") >= 0 || line.indexOf("UL1(") >= 0) {
           data.voltajeA = (uint16_t)round(extractObisValue(line));
           g_a1052Diag.lastVoltageA = data.voltajeA;
